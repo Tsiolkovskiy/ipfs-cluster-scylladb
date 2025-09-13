@@ -1,0 +1,34 @@
+@startuml C4-Context-ScyllaDB-State-Store
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
+
+LAYOUT_TOP_DOWN()
+
+title Task 3: ScyllaDB State Store - Context Diagram
+
+' Enterprise Gray-Blue цветовая палитра
+AddElementTag("cluster", $bgColor="#5C7CFA", $fontColor="#FFFFFF", $borderColor="#3B5BDB", $legendText="IPFS Cluster")
+AddElementTag("database", $bgColor="#6941C6", $fontColor="#FFFFFF", $borderColor="#5335A3", $legendText="Database")
+AddElementTag("external", $bgColor="#667085", $fontColor="#FFFFFF", $borderColor="#475467", $legendText="External System")
+
+Person(admin, "Cluster Administrator", "Configures and manages IPFS-Cluster with ScyllaDB backend")
+Person(developer, "Developer", "Integrates applications with IPFS-Cluster pin management")
+
+System(cluster, "IPFS-Cluster", "Distributed IPFS pin orchestration system with ScyllaDB state store", $tags="cluster")
+
+System_Ext(scylladb, "ScyllaDB Cluster", "High-performance distributed database for trillion-scale pin metadata storage", $tags="database")
+
+System_Ext(ipfs, "IPFS Network", "Distributed file system nodes storing actual content blocks", $tags="external")
+
+System_Ext(monitoring, "Monitoring Stack", "Prometheus, Grafana for metrics and alerting", $tags="external")
+
+' Relationships
+Rel(admin, cluster, "Configures ScyllaDB connection, manages cluster")
+Rel(developer, cluster, "Uses pin management APIs")
+Rel(cluster, scylladb, "Stores/retrieves pin metadata, placements, TTL queues")
+Rel(cluster, ipfs, "Coordinates pin operations across IPFS nodes")
+Rel(cluster, monitoring, "Exports metrics for performance monitoring")
+Rel(admin, monitoring, "Monitors cluster health and performance")
+
+SHOW_LEGEND()
+
+@enduml

@@ -1,0 +1,131 @@
+@startuml Migration-System-Flow-Task3
+!theme plain
+
+title Task 3: Migration System Architecture & Flow\nSchema Versioning and Automatic Migrations
+
+' Цветовая схема
+skinparam activity {
+    BackgroundColor #E3F2FD
+    BorderColor #1976D2
+    DiamondBackgroundColor #FFF3E0
+    DiamondBorderColor #F57C00
+    StartColor #4CAF50
+    EndColor #F44336
+}
+
+skinparam note {
+    BackgroundColor #FFFDE7
+    BorderColor #FBC02D
+}
+
+start
+
+:Application Startup;
+
+:Initialize MigrationManager;
+note right
+**Components:**
+- MigrationManager (coordinator)
+- Migration Scripts (SQL)
+- Migration Utils (high-level ops)
+- Migration CLI (command interface)
+- Schema Validator (verification)
+end note
+
+:Check Schema Version Table;
+
+if (Schema version table exists?) then (yes)
+    :Get Current Version;
+    if (Version compatible?) then (yes)
+        if (Migrations needed?) then (yes)
+            :Get Pending Migrations;
+            note right
+            **Version Comparison:**
+            - Current: 1.0.0 → Target: 1.1.0
+            - Semantic versioning
+            - Compatibility checks
+            end note
+        else (no)
+            :Schema Up-to-Date;
+            goto ready
+        endif
+    else (no)
+        :Log Compatibility Error;
+        stop
+    endif
+else (no)
+    :Create Schema Version Table;
+    :Fresh Installation;
+    :Get All Migrations (0.0.0 → 1.1.0);
+endif
+
+:Apply Migrations Sequentially;
+
+partition "Migration Execution" {
+    :Parse SQL Statements;
+    note right
+    **Statement Parsing:**
+    - Split by semicolons
+    - Handle strings with semicolons
+    - Filter empty statements
+    - Validate syntax
+    end note
+    
+    :Execute Migration Script;
+    note right
+    **Migration Scripts:**
+    - v1.0.0: Initial schema
+    - v1.1.0: Enhanced metadata
+    - Idempotent operations
+    - Error handling
+    end note
+    
+    if (Migration successful?) then (yes)
+        :Run Validation;
+        if (Validation passed?) then (yes)
+            :Record Migration in Version Table;
+        else (no)
+            :Rollback Migration;
+            :Log Validation Error;
+            stop
+        endif
+    else (no)
+        if (Error ignorable?) then (yes)
+            note right
+            **Ignorable Errors:**
+            - "table already exists"
+            - "column already exists"
+            - "duplicate column name"
+            end note
+            :Log Warning;
+        else (no)
+            :Log Critical Error;
+            stop
+        endif
+    endif
+}
+
+:Validate Final Schema;
+
+if (Schema valid?) then (yes)
+    label ready
+    :Schema Ready;
+    :Start Application;
+    stop
+else (no)
+    :Log Schema Validation Error;
+    stop
+endif
+
+note bottom
+**Migration Features:**
+✅ Automatic migration at startup
+✅ Version compatibility checks
+✅ Idempotent operations
+✅ Comprehensive validation
+✅ CLI management tools
+✅ Rollback support (limited)
+✅ Error handling & recovery
+end note
+
+@enduml

@@ -1,0 +1,47 @@
+@startuml C4-Container-ScyllaDB-State-Store
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+LAYOUT_TOP_DOWN()
+
+title Task 3: ScyllaDB State Store - Container Diagram
+
+' Enterprise Gray-Blue цветовая палитра
+AddElementTag("cluster", $bgColor="#5C7CFA", $fontColor="#FFFFFF", $borderColor="#3B5BDB", $legendText="Cluster Service")
+AddElementTag("state", $bgColor="#4C6EF5", $fontColor="#FFFFFF", $borderColor="#364FC7", $legendText="State Store")
+AddElementTag("database", $bgColor="#6941C6", $fontColor="#FFFFFF", $borderColor="#5335A3", $legendText="Database")
+AddElementTag("config", $bgColor="#495057", $fontColor="#FFFFFF", $borderColor="#343A40", $legendText="Configuration")
+AddElementTag("migration", $bgColor="#7C3AED", $fontColor="#FFFFFF", $borderColor="#5B21B6", $legendText="Migration System")
+
+Person(admin, "Administrator", "Manages cluster configuration and migrations")
+
+System_Boundary(cluster_system, "IPFS-Cluster System") {
+    Container(cluster_core, "Cluster Core", "Go", "Main IPFS-Cluster orchestration logic", $tags="cluster")
+    
+    Container_Boundary(state_store, "ScyllaDB State Store") {
+        Container(scylla_state, "ScyllaState", "Go", "Implements state.State interface for ScyllaDB operations", $tags="state")
+        Container(config_mgr, "Configuration Manager", "Go", "Handles ScyllaDB connection config, TLS, auth", $tags="config")
+        Container(migration_sys, "Migration System", "Go", "Schema versioning, automatic migrations, validation", $tags="migration")
+    }
+}
+
+ContainerDb(scylladb, "ScyllaDB Cluster", "CQL", "Keyspace: ipfs_pins\nTables: pins_by_cid, placements_by_cid, pins_by_peer, pin_ttl_queue", $tags="database")
+
+System_Ext(monitoring, "Monitoring", "Prometheus metrics collection")
+
+' Relationships
+Rel(admin, config_mgr, "Configures connection, TLS, performance settings")
+Rel(admin, migration_sys, "Manages schema migrations and validation")
+
+Rel(cluster_core, scylla_state, "Uses state.State interface for pin operations")
+Rel(scylla_state, config_mgr, "Gets connection configuration")
+Rel(scylla_state, migration_sys, "Ensures schema compatibility")
+
+Rel(scylla_state, scylladb, "CQL queries for pin metadata CRUD operations")
+Rel(migration_sys, scylladb, "Schema creation, migration, validation")
+Rel(config_mgr, scylladb, "Establishes secure connections")
+
+Rel(scylla_state, monitoring, "Exports operation metrics, latency, errors")
+
+SHOW_LEGEND()
+
+@enduml

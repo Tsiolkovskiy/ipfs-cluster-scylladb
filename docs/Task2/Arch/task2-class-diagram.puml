@@ -1,0 +1,252 @@
+@startuml Task2_Class_Diagram
+title Task 2 - ScyllaDB State Store Class Diagram
+
+package "state/scyllastate" {
+    
+    ' Main Configuration Class (Task 2.1)
+    class Config {
+        +config.Saver
+        
+        ' Connection settings (Task 2.1)
+        +Hosts: []string
+        +Port: int
+        +Keyspace: string
+        +Username: string
+        +Password: string
+        
+        ' TLS settings (Task 2.2)
+        +TLSEnabled: bool
+        +TLSCertFile: string
+        +TLSKeyFile: string
+        +TLSCAFile: string
+        +TLSInsecureSkipVerify: bool
+        
+        ' Performance settings (Task 2.1)
+        +NumConns: int
+        +Timeout: time.Duration
+        +ConnectTimeout: time.Duration
+        
+        ' Consistency settings (Task 2.1)
+        +Consistency: string
+        +SerialConsistency: string
+        
+        ' Retry policy settings (Task 2.1)
+        +RetryPolicy: RetryPolicyConfig
+        
+        ' Batching settings (Task 2.1)
+        +BatchSize: int
+        +BatchTimeout: time.Duration
+        
+        ' Monitoring settings (Task 2.1)
+        +MetricsEnabled: bool
+        +TracingEnabled: bool
+        
+        ' Multi-DC settings (Task 2.1)
+        +LocalDC: string
+        +DCAwareRouting: bool
+        +TokenAwareRouting: bool
+        
+        ' Basic methods (Task 2.1)
+        +ConfigKey(): string
+        +Default(): error
+        +ApplyEnvVars(): error
+        +Validate(): error
+        
+        ' JSON methods (Task 2.1)
+        +LoadJSON(raw []byte): error
+        +ToJSON(): ([]byte, error)
+        +ToDisplayJSON(): ([]byte, error)
+        
+        ' TLS methods (Task 2.2)
+        +CreateTLSConfig(): (*tls.Config, error)
+        +ValidateTLSCertificates(): error
+        +GetTLSInfo(): map[string]interface{}
+        
+        ' Authentication methods (Task 2.2)
+        +CreateAuthenticator(): gocql.Authenticator
+        +GetAuthInfo(): map[string]interface{}
+        
+        ' Secure connection methods (Task 2.2)
+        +CreateClusterConfig(): (*gocql.ClusterConfig, error)
+        +CreateSecureClusterConfig(): (*gocql.ClusterConfig, error)
+        +ValidateProduction(): error
+        +GetSecurityLevel(): (string, int, []string)
+        
+        ' Utility methods
+        +GetConsistency(): gocql.Consistency
+        +GetSerialConsistency(): gocql.SerialConsistency
+        +GetEffectiveConfig(): (*Config, error)
+        +IsMultiDC(): bool
+        +GetConnectionString(): string
+    }
+    
+    ' Retry Policy Configuration (Task 2.1)
+    class RetryPolicyConfig {
+        +NumRetries: int
+        +MinRetryDelay: time.Duration
+        +MaxRetryDelay: time.Duration
+    }
+    
+    ' JSON Serialization Helpers (Task 2.1)
+    class configJSON {
+        +Hosts: []string
+        +Port: int
+        +Keyspace: string
+        +Username: string
+        +Password: string
+        +TLSEnabled: bool
+        +TLSCertFile: string
+        +TLSKeyFile: string
+        +TLSCAFile: string
+        +TLSInsecureSkipVerify: bool
+        +NumConns: int
+        +Timeout: string
+        +ConnectTimeout: string
+        +Consistency: string
+        +SerialConsistency: string
+        +RetryPolicy: retryPolicyConfigJSON
+        +BatchSize: int
+        +BatchTimeout: string
+        +MetricsEnabled: bool
+        +TracingEnabled: bool
+        +LocalDC: string
+        +DCAwareRouting: bool
+        +TokenAwareRouting: bool
+    }
+    
+    class retryPolicyConfigJSON {
+        +NumRetries: int
+        +MinRetryDelay: string
+        +MaxRetryDelay: string
+    }
+    
+    ' Validation Classes (Task 2.1 Extended)
+    enum ValidationLevel {
+        ValidationBasic
+        ValidationStrict
+        ValidationDevelopment
+    }
+    
+    class ValidationOptions {
+        +Level: ValidationLevel
+        +AllowInsecureTLS: bool
+        +AllowWeakConsistency: bool
+        +MinHosts: int
+        +MaxHosts: int
+        +RequireAuth: bool
+        
+        +DefaultValidationOptions(): *ValidationOptions
+        +StrictValidationOptions(): *ValidationOptions
+        +DevelopmentValidationOptions(): *ValidationOptions
+    }
+    
+    ' Extended Config methods for validation
+    class Config {
+        ' Advanced validation methods (Task 2.1)
+        +ValidateWithOptions(opts *ValidationOptions): error
+        +validateBasic(opts *ValidationOptions): error
+        +validateStrict(opts *ValidationOptions): error
+        +validateDevelopment(opts *ValidationOptions): error
+        +validateHosts(opts *ValidationOptions): error
+        +validateHost(host string): error
+        +validateHostname(hostname string): error
+        +validateKeyspace(): error
+        +validateTimeouts(): error
+        +validateConsistencyLevels(opts *ValidationOptions): error
+        +validateBatchSettings(): error
+        +validateTLSSettings(opts *ValidationOptions): error
+        +GetValidationSummary(): map[string]interface{}
+        +ValidateAndSummarize(opts *ValidationOptions): (map[string]interface{}, error)
+    }
+}
+
+' External Dependencies
+package "External" {
+    interface "gocql.Authenticator" as GoCQLAuth {
+        +Challenge(req []byte): ([]byte, Authenticator, error)
+        +Success(data []byte): error
+    }
+    
+    class "gocql.PasswordAuthenticator" as PasswordAuth {
+        +Username: string
+        +Password: string
+    }
+    
+    class "gocql.ClusterConfig" as ClusterConfig {
+        +Hosts: []string
+        +Port: int
+        +Keyspace: string
+        +Authenticator: Authenticator
+        +SslOpts: *SslOptions
+        +NumConns: int
+        +Timeout: time.Duration
+        +ConnectTimeout: time.Duration
+        +Consistency: Consistency
+        +SerialConsistency: SerialConsistency
+    }
+    
+    class "tls.Config" as TLSConfig {
+        +Certificates: []Certificate
+        +RootCAs: *CertPool
+        +InsecureSkipVerify: bool
+    }
+}
+
+' Relationships
+Config ||--|| RetryPolicyConfig : contains
+Config ..> configJSON : uses for JSON
+configJSON ||--|| retryPolicyConfigJSON : contains
+Config ..> ValidationOptions : uses for validation
+ValidationOptions ||--|| ValidationLevel : uses
+
+' External relationships
+Config ..> GoCQLAuth : creates
+Config ..> PasswordAuth : creates
+Config ..> ClusterConfig : creates
+Config ..> TLSConfig : creates
+PasswordAuth ..|> GoCQLAuth : implements
+
+' Composition relationships
+Config *-- RetryPolicyConfig : RetryPolicy
+
+note top of Config
+  **Task 2.1: Configuration Structure**
+  - Complete configuration struct with all required fields
+  - JSON marshaling/unmarshaling with proper type handling
+  - Comprehensive validation with multiple levels
+  - Default values and environment variable support
+  - ~1000+ lines of implementation
+end note
+
+note bottom of Config
+  **Task 2.2: TLS & Authentication**
+  - TLS configuration with certificate support
+  - Username/password and certificate-based authentication
+  - Secure connection creation with validation
+  - Security assessment with 0-100 scoring system
+  - Production-ready security requirements
+end note
+
+note right of ValidationOptions
+  **Validation Levels:**
+  - **Basic**: Standard validation for general use
+  - **Strict**: Production requirements (TLS, auth, strong consistency)
+  - **Development**: Relaxed rules for development environment
+  
+  **Scoring System:**
+  - TLS: 40 points (encryption + cert verification + client certs)
+  - Authentication: 30 points (username/password)
+  - Consistency: 20 points (strong consistency levels)
+  - High Availability: 10 points (multiple hosts)
+end note
+
+note left of ClusterConfig
+  **gocql Integration:**
+  - Native support for gocql driver
+  - Proper SSL options configuration
+  - Authentication integration
+  - Host selection policies for Multi-DC
+  - Connection pooling configuration
+end note
+
+@enduml

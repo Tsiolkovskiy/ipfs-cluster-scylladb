@@ -1,0 +1,166 @@
+@startuml Task2_Deployment
+title Task 2 - ScyllaDB State Store Deployment Architecture
+
+!define AWSPUML https://raw.githubusercontent.com/awslabs/aws-icons-for-plantuml/v15.0/dist
+!include AWSPUML/AWSCommon.puml
+!include AWSPUML/Compute/EC2.puml
+!include AWSPUML/Database/Database.puml
+!include AWSPUML/SecurityIdentityCompliance/CertificateManager.puml
+!include AWSPUML/NetworkingContentDelivery/VPC.puml
+
+' Define custom colors for different environments
+!define DEV_COLOR #E8F4FD
+!define PROD_COLOR #FFF2CC
+!define SECURITY_COLOR #F8CECC
+
+package "Development Environment" <<DEV_COLOR>> {
+    node "Developer Workstation" as DevWorkstation {
+        component "IPFS Cluster Node" as DevCluster
+        component "ScyllaDB Config" as DevConfig {
+            note right : **Task 2.1 Config:**\n- Single host: localhost:9042\n- Basic validation\n- JSON configuration\n- Environment variables
+        }
+        component "TLS Handler" as DevTLS {
+            note right : **Task 2.2 TLS:**\n- TLS enabled\n- InsecureSkipVerify: true\n- Self-signed certificates\n- Development validation
+        }
+    }
+    
+    database "Local ScyllaDB" as DevScyllaDB {
+        note bottom : Single node\nNo authentication\nSelf-signed TLS
+    }
+}
+
+package "Production Environment" <<PROD_COLOR>> {
+    
+    package "Kubernetes Cluster" {
+        node "IPFS Cluster Pod 1" as ProdPod1 {
+            component "IPFS Cluster Node" as ProdCluster1
+            component "ScyllaDB Config" as ProdConfig1 {
+                note right : **Task 2.1 Config:**\n- Multiple hosts\n- Strict validation\n- Environment variables\n- Production defaults
+            }
+            component "TLS Handler" as ProdTLS1 {
+                note right : **Task 2.2 TLS:**\n- TLS required\n- Client certificates\n- CA validation\n- Production validation
+            }
+        }
+        
+        node "IPFS Cluster Pod 2" as ProdPod2 {
+            component "IPFS Cluster Node" as ProdCluster2
+            component "ScyllaDB Config" as ProdConfig2
+            component "TLS Handler" as ProdTLS2
+        }
+        
+        node "IPFS Cluster Pod 3" as ProdPod3 {
+            component "IPFS Cluster Node" as ProdCluster3
+            component "ScyllaDB Config" as ProdConfig3
+            component "TLS Handler" as ProdTLS3
+        }
+    }
+    
+    package "ScyllaDB Cluster" {
+        database "ScyllaDB Node 1\n(DC1)" as ScyllaDB1 {
+            note bottom : Primary node\nAuthentication enabled\nTLS with client certs
+        }
+        database "ScyllaDB Node 2\n(DC1)" as ScyllaDB2
+        database "ScyllaDB Node 3\n(DC2)" as ScyllaDB3
+    }
+}
+
+package "Security Infrastructure" <<SECURITY_COLOR>> {
+    component "Certificate Authority" as CA {
+        note right : **Task 2.2 Security:**\n- Issues client certificates\n- CA certificate validation\n- Certificate expiry monitoring
+    }
+    
+    component "Secret Management" as Secrets {
+        note right : **Environment Variables:**\n- SCYLLADB_USERNAME\n- SCYLLADB_PASSWORD\n- SCYLLADB_TLS_CERT_FILE\n- SCYLLADB_TLS_KEY_FILE\n- SCYLLADB_TLS_CA_FILE
+    }
+    
+    component "Security Assessment" as SecurityAssessment {
+        note right : **Security Scoring:**\n- TLS: 40 points\n- Authentication: 30 points\n- Consistency: 20 points\n- High Availability: 10 points\n- Levels: Critical → Excellent
+    }
+}
+
+' Development connections
+DevCluster --> DevConfig : uses
+DevConfig --> DevTLS : configures
+DevTLS --> DevScyllaDB : connects (TLS, insecure)
+
+' Production connections
+ProdCluster1 --> ProdConfig1 : uses
+ProdCluster2 --> ProdConfig2 : uses
+ProdCluster3 --> ProdConfig3 : uses
+
+ProdConfig1 --> ProdTLS1 : configures
+ProdConfig2 --> ProdTLS2 : configures
+ProdConfig3 --> ProdTLS3 : configures
+
+ProdTLS1 --> ScyllaDB1 : secure connection
+ProdTLS1 --> ScyllaDB2 : secure connection
+ProdTLS1 --> ScyllaDB3 : secure connection (Multi-DC)
+
+ProdTLS2 --> ScyllaDB1 : secure connection
+ProdTLS2 --> ScyllaDB2 : secure connection
+ProdTLS2 --> ScyllaDB3 : secure connection (Multi-DC)
+
+ProdTLS3 --> ScyllaDB1 : secure connection
+ProdTLS3 --> ScyllaDB2 : secure connection
+ProdTLS3 --> ScyllaDB3 : secure connection (Multi-DC)
+
+' Security connections
+CA --> ProdTLS1 : provides certificates
+CA --> ProdTLS2 : provides certificates
+CA --> ProdTLS3 : provides certificates
+
+Secrets --> ProdConfig1 : environment variables
+Secrets --> ProdConfig2 : environment variables
+Secrets --> ProdConfig3 : environment variables
+
+SecurityAssessment --> ProdConfig1 : validates security
+SecurityAssessment --> ProdConfig2 : validates security
+SecurityAssessment --> ProdConfig3 : validates security
+
+' Configuration details
+note as ConfigDetails
+  **Task 2.1 Configuration Features:**
+  - JSON marshaling/unmarshaling with duration handling
+  - Environment variable override support
+  - Multiple validation levels (Basic/Strict/Development)
+  - Default values for quick setup
+  - Connection pooling and timeout configuration
+  - Multi-DC aware routing configuration
+  - Batch processing settings
+  - Retry policy configuration
+end note
+
+note as TLSDetails
+  **Task 2.2 TLS & Authentication Features:**
+  - Client certificate authentication (mutual TLS)
+  - CA certificate validation
+  - Certificate expiry checking
+  - Username/password authentication
+  - Secure connection creation with validation
+  - Production security requirements enforcement
+  - Security level assessment (0-100 scoring)
+  - TLS configuration information reporting
+end note
+
+note as DeploymentDetails
+  **Deployment Configurations:**
+  
+  **Development:**
+  - Single ScyllaDB node
+  - Relaxed validation (ValidationDevelopment)
+  - Self-signed certificates allowed
+  - InsecureSkipVerify: true
+  - Consistency: ONE (faster)
+  
+  **Production:**
+  - Multi-node ScyllaDB cluster (3+ nodes)
+  - Strict validation (ValidationStrict)
+  - CA-signed certificates required
+  - InsecureSkipVerify: false
+  - Consistency: QUORUM/LOCAL_QUORUM
+  - Authentication mandatory
+  - TLS mandatory
+  - Multi-DC support with DC-aware routing
+end note
+
+@enduml

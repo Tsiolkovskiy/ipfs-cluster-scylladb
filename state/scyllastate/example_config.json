@@ -1,0 +1,29 @@
+{
+  "hosts": ["scylla1.example.com", "scylla2.example.com", "scylla3.example.com"],
+  "port": 9042,
+  "keyspace": "ipfs_pins",
+  "username": "cluster_user",
+  "password": "secure_password",
+  "tls_enabled": true,
+  "tls_cert_file": "/etc/ssl/certs/client.crt",
+  "tls_key_file": "/etc/ssl/private/client.key",
+  "tls_ca_file": "/etc/ssl/certs/ca.crt",
+  "tls_insecure_skip_verify": false,
+  "num_conns": 10,
+  "timeout": "30s",
+  "connect_timeout": "10s",
+  "consistency": "QUORUM",
+  "serial_consistency": "SERIAL",
+  "retry_policy": {
+    "num_retries": 3,
+    "min_retry_delay": "100ms",
+    "max_retry_delay": "10s"
+  },
+  "batch_size": 1000,
+  "batch_timeout": "1s",
+  "metrics_enabled": true,
+  "tracing_enabled": false,
+  "local_dc": "datacenter1",
+  "dc_aware_routing": true,
+  "token_aware_routing": true
+}

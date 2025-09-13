@@ -1,0 +1,92 @@
+@startuml C4_Component
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+title ScyllaDB State Store - Component Diagram (Task 2 Focus)
+
+Container(ipfs_cluster, "IPFS Cluster Node", "Go", "Main cluster application")
+
+Container_Boundary(scyllastate, "ScyllaDB State Store Package") {
+    
+    ' Task 2.1 Components
+    Component(config_struct, "Config Struct", "Go struct", "Main configuration structure with all fields")
+    Component(json_marshal, "JSON Marshaling", "Go methods", "LoadJSON/ToJSON/ToDisplayJSON methods")
+    Component(validation_basic, "Basic Validation", "Go methods", "Validate() and field-specific validation")
+    Component(defaults, "Default Values", "Go methods", "Default() method and constants")
+    
+    ' Task 2.2 Components  
+    Component(tls_config, "TLS Configuration", "Go methods", "CreateTLSConfig() and certificate handling")
+    Component(auth_handler, "Authentication", "Go methods", "CreateAuthenticator() for username/password")
+    Component(secure_conn, "Secure Connections", "Go methods", "CreateSecureClusterConfig() with validation")
+    Component(cert_validator, "Certificate Validator", "Go methods", "ValidateTLSCertificates() and expiry checks")
+    
+    ' Advanced Validation (Task 2.1 extension)
+    Component(validation_advanced, "Advanced Validation", "Go methods", "ValidateWithOptions() with multiple levels")
+    Component(validation_opts, "Validation Options", "Go structs", "ValidationOptions with different levels")
+    Component(security_assessment, "Security Assessment", "Go methods", "GetSecurityLevel() with scoring")
+    
+    ' Utility Components
+    Component(env_vars, "Environment Variables", "Go methods", "ApplyEnvVars() for runtime config")
+    Component(info_methods, "Information Methods", "Go methods", "GetTLSInfo(), GetAuthInfo(), GetConnectionString()")
+}
+
+ContainerDb(scylladb, "ScyllaDB Cluster", "ScyllaDB", "Target database cluster")
+System_Ext(gocql, "GoCQL Driver", "Go library", "Cassandra/ScyllaDB driver")
+
+' Main relationships
+Rel(ipfs_cluster, config_struct, "Uses", "Go API")
+Rel(config_struct, json_marshal, "Uses", "Serialization")
+Rel(config_struct, validation_basic, "Uses", "Basic checks")
+Rel(config_struct, validation_advanced, "Uses", "Advanced checks")
+Rel(config_struct, defaults, "Uses", "Initialization")
+
+' Task 2.2 relationships
+Rel(config_struct, tls_config, "Uses", "TLS setup")
+Rel(config_struct, auth_handler, "Uses", "Authentication")
+Rel(config_struct, secure_conn, "Uses", "Secure connections")
+Rel(tls_config, cert_validator, "Uses", "Certificate validation")
+
+' Validation relationships
+Rel(validation_advanced, validation_opts, "Uses", "Configuration")
+Rel(validation_advanced, security_assessment, "Uses", "Security scoring")
+
+' Utility relationships
+Rel(config_struct, env_vars, "Uses", "Runtime config")
+Rel(config_struct, info_methods, "Uses", "Information")
+
+' External relationships
+Rel(secure_conn, gocql, "Creates", "ClusterConfig")
+Rel(gocql, scylladb, "Connects", "CQL/TLS")
+
+note top of config_struct
+  **Task 2.1: Configuration Structure**
+  - Connection fields (Hosts, Port, Keyspace)
+  - TLS fields (TLSEnabled, TLSCertFile, etc.)
+  - Performance fields (NumConns, Timeout, etc.)
+  - Consistency fields (Consistency, SerialConsistency)
+  - Multi-DC fields (LocalDC, DCAwareRouting)
+end note
+
+note top of tls_config
+  **Task 2.2: TLS & Authentication**
+  - Client certificate loading
+  - CA certificate validation
+  - TLS configuration creation
+  - Certificate expiry checking
+end note
+
+note bottom of validation_advanced
+  **Validation Levels:**
+  - Basic: Standard validation
+  - Strict: Production requirements
+  - Development: Relaxed rules
+end note
+
+note bottom of security_assessment
+  **Security Scoring (0-100):**
+  - TLS: 40 points max
+  - Authentication: 30 points max  
+  - Consistency: 20 points max
+  - High Availability: 10 points max
+end note
+
+@enduml

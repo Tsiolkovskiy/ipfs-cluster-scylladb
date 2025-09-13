@@ -1,0 +1,88 @@
+@startuml C4-Component-ScyllaDB-State-Store
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+LAYOUT_TOP_DOWN()
+
+title Task 3: ScyllaDB State Store - Component Diagram
+
+' Enterprise Gray-Blue цветовая палитра
+AddElementTag("interface", $bgColor="#5C7CFA", $fontColor="#FFFFFF", $borderColor="#3B5BDB", $legendText="Interface")
+AddElementTag("core", $bgColor="#4C6EF5", $fontColor="#FFFFFF", $borderColor="#364FC7", $legendText="Core Logic")
+AddElementTag("config", $bgColor="#495057", $fontColor="#FFFFFF", $borderColor="#343A40", $legendText="Configuration")
+AddElementTag("migration", $bgColor="#7C3AED", $fontColor="#FFFFFF", $borderColor="#5B21B6", $legendText="Migration")
+AddElementTag("database", $bgColor="#6941C6", $fontColor="#FFFFFF", $borderColor="#5335A3", $legendText="Database")
+AddElementTag("test", $bgColor="#20C997", $fontColor="#FFFFFF", $borderColor="#12B886", $legendText="Testing")
+
+System_Ext(cluster, "IPFS-Cluster Core", "Uses state.State interface")
+
+Container_Boundary(scylla_state_store, "ScyllaDB State Store Package") {
+    
+    ' Core State Implementation
+    Component(state_interface, "state.State Interface", "Go Interface", "ReadOnly, WriteOnly, BatchingState methods", $tags="interface")
+    Component(scylla_state, "ScyllaState", "Go Struct", "Main implementation with gocql.Session", $tags="core")
+    Component(batching_state, "ScyllaBatchingState", "Go Struct", "Batch operations with gocql.Batch", $tags="core")
+    
+    ' Configuration Components
+    Component(config, "Config", "Go Struct", "Connection, TLS, performance settings", $tags="config")
+    Component(tls_auth, "TLS & Auth", "Go", "Certificate handling, authentication", $tags="config")
+    Component(validation, "Config Validation", "Go", "Validates settings, defaults", $tags="config")
+    
+    ' Migration System Components  
+    Component(migration_mgr, "MigrationManager", "Go", "Coordinates schema migrations", $tags="migration")
+    Component(migration_scripts, "Migration Scripts", "Go", "SQL scripts for schema versions", $tags="migration")
+    Component(migration_utils, "Migration Utils", "Go", "High-level migration operations", $tags="migration")
+    Component(migration_cli, "Migration CLI", "Go", "Command-line migration tools", $tags="migration")
+    Component(schema_validator, "Schema Validator", "Go", "Validates schema structure", $tags="migration")
+    
+    ' Testing Components
+    Component(unit_tests, "Unit Tests", "Go Test", "migrations_test.go - comprehensive tests", $tags="test")
+    Component(simple_tests, "Simple Tests", "Go Test", "migrations_simple_test.go - smoke tests", $tags="test")
+    Component(standalone_test, "Standalone Tester", "Go", "test_migrations_main.go - isolated testing", $tags="test")
+    Component(validation_tests, "Validation Tests", "Go", "validate_migrations.go - system validation", $tags="test")
+}
+
+ContainerDb_Ext(scylladb, "ScyllaDB Cluster", "CQL Database") {
+    ComponentDb(keyspace, "ipfs_pins keyspace", "CQL", "NetworkTopologyStrategy replication")
+    ComponentDb(pins_table, "pins_by_cid", "CQL", "Main pin metadata, partitioned by mh_prefix")
+    ComponentDb(placements_table, "placements_by_cid", "CQL", "Pin placement tracking")
+    ComponentDb(peers_table, "pins_by_peer", "CQL", "Reverse index for peer queries")
+    ComponentDb(ttl_table, "pin_ttl_queue", "CQL", "TTL-based cleanup queue")
+    ComponentDb(version_table, "schema_version", "CQL", "Migration version tracking")
+}
+
+' Core relationships
+Rel(cluster, state_interface, "Uses for pin operations")
+Rel(state_interface, scylla_state, "Implements")
+Rel(state_interface, batching_state, "Implements")
+Rel(scylla_state, config, "Uses connection settings")
+Rel(scylla_state, migration_mgr, "Ensures schema ready")
+
+' Configuration relationships
+Rel(config, tls_auth, "Uses for secure connections")
+Rel(config, validation, "Validates settings")
+Rel(tls_auth, scylladb, "Establishes secure connection")
+
+' Migration relationships
+Rel(migration_mgr, migration_scripts, "Executes SQL scripts")
+Rel(migration_mgr, schema_validator, "Validates schema")
+Rel(migration_utils, migration_mgr, "High-level operations")
+Rel(migration_cli, migration_utils, "CLI commands")
+
+' Database relationships
+Rel(scylla_state, pins_table, "CRUD operations")
+Rel(scylla_state, placements_table, "Placement tracking")
+Rel(scylla_state, peers_table, "Peer-based queries")
+Rel(scylla_state, ttl_table, "TTL management")
+Rel(migration_mgr, version_table, "Version tracking")
+Rel(migration_mgr, keyspace, "Schema management")
+
+' Testing relationships
+Rel(unit_tests, scylla_state, "Tests core functionality")
+Rel(unit_tests, migration_mgr, "Tests migration logic")
+Rel(simple_tests, migration_scripts, "Tests script availability")
+Rel(standalone_test, validation_tests, "Isolated validation")
+Rel(validation_tests, migration_utils, "System validation")
+
+SHOW_LEGEND()
+
+@enduml

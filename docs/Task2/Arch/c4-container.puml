@@ -1,0 +1,50 @@
+@startuml C4_Container
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+title ScyllaDB State Store - Container Diagram
+
+Person(developer, "Developer", "Configures ScyllaDB state store")
+Person(devops, "DevOps Engineer", "Manages deployment")
+
+System_Boundary(ipfs_cluster, "IPFS Cluster System") {
+    Container(cluster_node, "IPFS Cluster Node", "Go", "Cluster node with state store")
+    Container(config_mgmt, "Configuration Management", "Go", "Handles ScyllaDB configuration")
+    Container(state_store, "ScyllaDB State Store", "Go", "State persistence layer")
+}
+
+System_Boundary(scylladb_cluster, "ScyllaDB Cluster") {
+    ContainerDb(scylla_node1, "ScyllaDB Node 1", "ScyllaDB", "Primary database node")
+    ContainerDb(scylla_node2, "ScyllaDB Node 2", "ScyllaDB", "Replica database node")
+    ContainerDb(scylla_node3, "ScyllaDB Node 3", "ScyllaDB", "Replica database node")
+}
+
+System_Ext(cert_authority, "Certificate Authority", "Issues TLS certificates")
+System_Ext(env_config, "Environment Variables", "Runtime configuration")
+
+Rel(developer, config_mgmt, "Configures", "JSON/Environment")
+Rel(devops, env_config, "Sets variables", "Shell/K8s")
+Rel(config_mgmt, state_store, "Provides config", "Go structs")
+Rel(cluster_node, state_store, "Uses for persistence", "Go API")
+
+Rel(state_store, scylla_node1, "Connects", "CQL/TLS")
+Rel(state_store, scylla_node2, "Connects", "CQL/TLS")
+Rel(state_store, scylla_node3, "Connects", "CQL/TLS")
+
+Rel(cert_authority, state_store, "Provides certificates", "X.509/PEM")
+Rel(env_config, config_mgmt, "Overrides config", "Environment")
+
+note right of state_store
+  Task 2.1: Configuration Structure
+  - Config struct with all fields
+  - JSON marshaling/unmarshaling
+  - Validation methods
+  - Default values
+  
+  Task 2.2: TLS & Authentication
+  - TLS configuration
+  - Certificate handling
+  - Username/password auth
+  - Secure connections
+end note
+
+@enduml

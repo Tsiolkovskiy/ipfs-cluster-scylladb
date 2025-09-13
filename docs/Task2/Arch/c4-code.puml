@@ -1,0 +1,143 @@
+@startuml C4_Code
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Code.puml
+
+title ScyllaDB State Store - Code Diagram (Task 2 Implementation)
+
+Container_Boundary(scyllastate_pkg, "state/scyllastate Package") {
+    
+    ' Main Configuration Class
+    Component(config_go, "config.go", "Go file", "Main configuration implementation")
+    
+    ' Task 2.1 Classes
+    Component(config_struct_class, "Config", "Go struct", "Main configuration structure")
+    Component(retry_policy_class, "RetryPolicyConfig", "Go struct", "Retry policy configuration")
+    Component(config_json_class, "configJSON", "Go struct", "JSON serialization helper")
+    
+    ' Task 2.2 Classes  
+    Component(tls_methods, "TLS Methods", "Go methods", "CreateTLSConfig, ValidateTLSCertificates")
+    Component(auth_methods, "Auth Methods", "Go methods", "CreateAuthenticator, GetAuthInfo")
+    Component(secure_methods, "Secure Methods", "Go methods", "CreateSecureClusterConfig, GetSecurityLevel")
+    
+    ' Validation Classes
+    Component(validation_go, "validate_config.go", "Go file", "Advanced validation implementation")
+    Component(validation_opts_class, "ValidationOptions", "Go struct", "Validation configuration")
+    Component(validation_level_enum, "ValidationLevel", "Go type", "Validation level enumeration")
+    
+    ' Test Classes
+    Component(validate_test_go, "validate_config_test.go", "Go file", "Validation tests")
+    Component(tls_auth_test_go, "tls_auth_test.go", "Go file", "TLS and auth tests")
+    
+    ' Example Classes
+    Component(example_go, "example_tls_auth.go", "Go file", "Usage examples")
+    
+    ' Documentation
+    Component(config_md, "CONFIG.md", "Markdown", "Configuration documentation")
+    Component(tls_auth_md, "TLS_AUTH.md", "Markdown", "TLS and auth documentation")
+}
+
+' External Dependencies
+System_Ext(gocql_pkg, "github.com/gocql/gocql", "Go package", "Cassandra/ScyllaDB driver")
+System_Ext(tls_pkg, "crypto/tls", "Go package", "TLS implementation")
+System_Ext(x509_pkg, "crypto/x509", "Go package", "X.509 certificate handling")
+System_Ext(testify_pkg, "github.com/stretchr/testify", "Go package", "Testing framework")
+
+' File relationships
+Rel(config_go, config_struct_class, "Contains")
+Rel(config_go, retry_policy_class, "Contains")
+Rel(config_go, config_json_class, "Contains")
+Rel(config_go, tls_methods, "Contains")
+Rel(config_go, auth_methods, "Contains")
+Rel(config_go, secure_methods, "Contains")
+
+Rel(validation_go, validation_opts_class, "Contains")
+Rel(validation_go, validation_level_enum, "Contains")
+
+' Class relationships
+Rel(config_struct_class, retry_policy_class, "Contains", "RetryPolicy field")
+Rel(config_struct_class, tls_methods, "Uses", "Method calls")
+Rel(config_struct_class, auth_methods, "Uses", "Method calls")
+Rel(config_struct_class, secure_methods, "Uses", "Method calls")
+
+Rel(tls_methods, tls_pkg, "Uses", "TLS operations")
+Rel(tls_methods, x509_pkg, "Uses", "Certificate handling")
+Rel(auth_methods, gocql_pkg, "Uses", "Authenticator creation")
+Rel(secure_methods, gocql_pkg, "Uses", "ClusterConfig creation")
+
+' Test relationships
+Rel(validate_test_go, validation_go, "Tests")
+Rel(validate_test_go, testify_pkg, "Uses")
+Rel(tls_auth_test_go, config_go, "Tests")
+Rel(tls_auth_test_go, testify_pkg, "Uses")
+Rel(tls_auth_test_go, x509_pkg, "Uses", "Certificate generation")
+
+' Example relationships
+Rel(example_go, config_go, "Demonstrates")
+
+' Documentation relationships
+Rel(config_md, config_go, "Documents")
+Rel(tls_auth_md, tls_methods, "Documents")
+Rel(tls_auth_md, auth_methods, "Documents")
+
+note right of config_struct_class
+  **Key Fields (Task 2.1):**
+  - Hosts []string
+  - Port int
+  - Keyspace string
+  - Username, Password string
+  - TLSEnabled bool
+  - TLSCertFile, TLSKeyFile string
+  - TLSCAFile string
+  - NumConns int
+  - Timeout, ConnectTimeout time.Duration
+  - Consistency, SerialConsistency string
+  - RetryPolicy RetryPolicyConfig
+  - BatchSize int
+  - LocalDC string
+  - DCAwareRouting, TokenAwareRouting bool
+end note
+
+note right of tls_methods
+  **Key Methods (Task 2.2):**
+  - CreateTLSConfig() (*tls.Config, error)
+  - ValidateTLSCertificates() error
+  - GetTLSInfo() map[string]interface{}
+end note
+
+note right of auth_methods
+  **Key Methods (Task 2.2):**
+  - CreateAuthenticator() gocql.Authenticator
+  - GetAuthInfo() map[string]interface{}
+end note
+
+note right of secure_methods
+  **Key Methods (Task 2.2):**
+  - CreateClusterConfig() (*gocql.ClusterConfig, error)
+  - CreateSecureClusterConfig() (*gocql.ClusterConfig, error)
+  - ValidateProduction() error
+  - GetSecurityLevel() (string, int, []string)
+end note
+
+note left of validation_opts_class
+  **Validation Levels:**
+  - ValidationBasic (default)
+  - ValidationStrict (production)
+  - ValidationDevelopment (relaxed)
+  
+  **Options:**
+  - AllowInsecureTLS bool
+  - AllowWeakConsistency bool
+  - MinHosts, MaxHosts int
+  - RequireAuth bool
+end note
+
+note left of tls_auth_test_go
+  **Test Features:**
+  - 1270+ lines of tests
+  - Automatic certificate generation
+  - Real TLS operations
+  - Security level testing
+  - Production validation
+  - Error handling coverage
+end note
+
+@enduml

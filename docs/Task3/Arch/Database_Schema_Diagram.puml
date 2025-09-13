@@ -1,0 +1,234 @@
+@startuml Database-Schema-ScyllaDB-Task3
+!theme plain
+
+title Task 3: ScyllaDB Schema Architecture\nOptimized for Trillion-Scale Pin Management
+
+' Цветовая схема для таблиц
+skinparam class {
+    BackgroundColor<<main>> #E3F2FD
+    BorderColor<<main>> #1976D2
+    BackgroundColor<<index>> #F3E5F5
+    BorderColor<<index>> #7B1FA2
+    BackgroundColor<<queue>> #E8F5E8
+    BorderColor<<queue>> #388E3C
+    BackgroundColor<<meta>> #FFF3E0
+    BorderColor<<meta>> #F57C00
+    BackgroundColor<<audit>> #FFEBEE
+    BorderColor<<audit>> #D32F2F
+}
+
+package "ipfs_pins keyspace" {
+    
+    class "pins_by_cid" <<main>> {
+        **Partition Key:**
+        + mh_prefix: smallint
+        **Clustering Key:**
+        + cid_bin: blob
+        --
+        + pin_type: tinyint
+        + rf: tinyint
+        + owner: text
+        + tags: set<text>
+        + ttl: timestamp
+        + metadata: map<text,text>
+        + created_at: timestamp
+        + updated_at: timestamp
+        + size: bigint
+        + status: tinyint
+        + version: int
+        + checksum: text
+        + priority: tinyint
+        --
+        **Compaction:** LeveledCompactionStrategy
+        **Caching:** keys=ALL, rows=1000
+        **Compression:** LZ4Compressor
+    }
+    
+    class "placements_by_cid" <<main>> {
+        **Partition Key:**
+        + mh_prefix: smallint
+        **Clustering Key:**
+        + cid_bin: blob
+        --
+        + desired: set<text>
+        + actual: set<text>
+        + failed: set<text>
+        + in_progress: set<text>
+        + updated_at: timestamp
+        + reconcile_count: int
+        + last_reconcile: timestamp
+        + drift_detected: boolean
+        --
+        **Co-located with pins_by_cid**
+        **Same partitioning strategy**
+    }
+    
+    class "pins_by_peer" <<index>> {
+        **Partition Key:**
+        + peer_id: text
+        **Clustering Keys:**
+        + mh_prefix: smallint
+        + cid_bin: blob
+        --
+        + state: tinyint
+        + last_seen: timestamp
+        + assigned_at: timestamp
+        + completed_at: timestamp
+        + error_message: text
+        + retry_count: int
+        + pin_size: bigint
+        --
+        **Reverse index for peer queries**
+        **Optimized for worker agents**
+    }
+    
+    class "pin_ttl_queue" <<queue>> {
+        **Partition Key:**
+        + ttl_bucket: timestamp
+        **Clustering Keys:**
+        + ttl: timestamp
+        + cid_bin: blob
+        --
+        + owner: text
+        --
+        **TimeWindowCompactionStrategy**
+        **TTL: 30 days**
+        **Hourly buckets for efficiency**
+    }
+    
+    class "op_dedup" <<meta>> {
+        **Partition Key:**
+        + op_id: text
+        --
+        + ts: timestamp
+        --
+        **TTL: 7 days**
+        **Idempotency support**
+    }
+    
+    class "pin_stats" <<meta>> {
+        **Partition Key:**
+        + stat_key: text
+        --
+        + stat_value: counter
+        --
+        **Global statistics**
+        **Counters for monitoring**
+    }
+    
+    class "pin_events" <<audit>> {
+        **Partition Key:**
+        + mh_prefix: smallint
+        + cid_bin: blob
+        **Clustering Key:**
+        + ts: timeuuid
+        --
+        + peer_id: text
+        + event_type: text
+        + details: text
+        --
+        **TimeWindowCompactionStrategy**
+        **TTL: 30 days**
+        **Audit trail**
+    }
+    
+    class "partition_stats" <<meta>> {
+        **Partition Key:**
+        + mh_prefix: smallint
+        **Clustering Key:**
+        + stat_type: text
+        --
+        + stat_value: bigint
+        + updated_at: timestamp
+        --
+        **Load balancing metrics**
+        **TTL: 24 hours**
+    }
+    
+    class "performance_metrics" <<meta>> {
+        **Partition Key:**
+        + metric_name: text
+        **Clustering Key:**
+        + time_bucket: timestamp
+        --
+        + metric_value: double
+        + tags: map<text,text>
+        --
+        **Time-series metrics**
+        **TTL: 7 days**
+    }
+    
+    class "batch_operations" <<meta>> {
+        **Partition Key:**
+        + batch_id: uuid
+        --
+        + operation_type: text
+        + cid_list: list<blob>
+        + status: text
+        + created_at: timestamp
+        + completed_at: timestamp
+        + error_details: text
+        --
+        **Batch tracking**
+        **TTL: 30 days**
+    }
+    
+    class "schema_version" <<meta>> {
+        **Partition Key:**
+        + version: text
+        --
+        + applied_at: timestamp
+        + comment: text
+        --
+        **Migration tracking**
+        **Version history**
+    }
+}
+
+' Relationships and data flow
+"pins_by_cid" ||--|| "placements_by_cid" : "same mh_prefix\nco-located"
+"pins_by_cid" ||--o{ "pins_by_peer" : "denormalized\nfor peer queries"
+"pins_by_cid" ||--o{ "pin_events" : "audit trail\nper pin"
+"pins_by_cid" ||--o{ "pin_ttl_queue" : "TTL scheduling\nwhen ttl set"
+
+note top of "pins_by_cid"
+**Main Pin Metadata Table**
+- Source of truth for all pins
+- Partitioned by mh_prefix (65,536 partitions)
+- Optimized for trillion-scale operations
+- Supports conditional updates (version field)
+end note
+
+note top of "placements_by_cid"
+**Pin Placement Tracking**
+- Desired vs actual peer assignments
+- Co-located with pins_by_cid
+- Supports reconciliation logic
+- Tracks placement drift
+end note
+
+note right of "pins_by_peer"
+**Reverse Index**
+- Efficient peer-based queries
+- Used by worker agents
+- Tracks pin state per peer
+- Supports retry logic
+end note
+
+note bottom of "pin_ttl_queue"
+**TTL Management**
+- Time-bucketed for efficiency
+- Automatic cleanup scheduling
+- Hourly processing batches
+- TimeWindow compaction
+end note
+
+note bottom of "partition_stats"
+**Load Balancing**
+- Monitor hot partitions
+- Track distribution metrics
+- Optimize performance
+- Prevent hotspots
+end note
+
+@enduml

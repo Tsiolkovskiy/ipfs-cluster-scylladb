@@ -1,0 +1,166 @@
+@startuml Task2_Sequence
+title Task 2 - ScyllaDB Configuration and TLS Setup Sequence
+
+actor Developer
+participant "IPFS Cluster" as Cluster
+participant "Config" as Config
+participant "Validation" as Validation
+participant "TLS Handler" as TLS
+participant "Auth Handler" as Auth
+participant "GoCQL" as GoCQL
+participant "ScyllaDB" as ScyllaDB
+
+== Task 2.1: Configuration Setup ==
+
+Developer -> Config: Create new Config()
+activate Config
+
+Config -> Config: Default()
+note right: Set default values:\n- Port: 9042\n- Keyspace: ipfs_pins\n- Consistency: QUORUM\n- NumConns: 10
+
+Developer -> Config: LoadJSON(configData)
+Config -> Config: Parse JSON fields
+Config -> Config: Convert duration strings
+note right: Handle time.Duration fields:\n- timeout: "30s" -> 30*time.Second\n- connect_timeout: "10s" -> 10*time.Second
+
+Developer -> Config: ApplyEnvVars()
+Config -> Config: Override with environment variables
+note right: Apply env vars:\n- SCYLLADB_HOSTS\n- SCYLLADB_USERNAME\n- SCYLLADB_PASSWORD\n- SCYLLADB_TLS_ENABLED
+
+Developer -> Validation: ValidateWithOptions(opts)
+activate Validation
+
+Validation -> Validation: validateBasic()
+Validation -> Validation: validateHosts()
+Validation -> Validation: validateKeyspace()
+Validation -> Validation: validateTimeouts()
+
+alt Strict Validation (Production)
+    Validation -> Validation: validateStrict()
+    note right: Production requirements:\n- TLS must be enabled\n- Authentication required\n- Strong consistency\n- Min 3 hosts
+else Development Validation
+    Validation -> Validation: validateDevelopment()
+    note right: Relaxed requirements:\n- Allow insecure TLS\n- Allow weak consistency\n- Single host OK
+end
+
+Validation --> Developer: Validation result
+deactivate Validation
+
+== Task 2.2: TLS and Authentication Setup ==
+
+Developer -> TLS: CreateTLSConfig()
+activate TLS
+
+TLS -> TLS: Check TLSEnabled
+alt TLS Enabled
+    TLS -> TLS: Load client certificate
+    note right: tls.LoadX509KeyPair(\n  cfg.TLSCertFile,\n  cfg.TLSKeyFile)
+    
+    TLS -> TLS: Load CA certificate
+    note right: Read and parse CA cert:\n- os.ReadFile(cfg.TLSCAFile)\n- x509.NewCertPool()\n- AppendCertsFromPEM()
+    
+    TLS -> TLS: ValidateTLSCertificates()
+    TLS -> TLS: Check certificate expiry
+    note right: Validate:\n- File existence\n- Certificate/key pair\n- Expiration dates\n- CA certificate format
+end
+
+TLS --> Config: *tls.Config
+deactivate TLS
+
+Developer -> Auth: CreateAuthenticator()
+activate Auth
+
+Auth -> Auth: Check credentials
+alt Username and Password provided
+    Auth -> Auth: Create PasswordAuthenticator
+    note right: gocql.PasswordAuthenticator{\n  Username: cfg.Username,\n  Password: cfg.Password\n}
+else No credentials
+    Auth --> Config: nil
+end
+
+Auth --> Config: gocql.Authenticator
+deactivate Auth
+
+== Secure Connection Creation ==
+
+Developer -> Config: CreateSecureClusterConfig()
+
+Config -> Validation: Validate security requirements
+note right: Security checks:\n- TLS must be enabled\n- Auth credentials required\n- No insecure TLS skip\n- Certificate validation
+
+Config -> TLS: ValidateTLSCertificates()
+TLS --> Config: Validation result
+
+Config -> Config: CreateClusterConfig()
+Config -> GoCQL: NewCluster(hosts...)
+activate GoCQL
+
+Config -> GoCQL: Set basic parameters
+note right: Configure:\n- Port, Keyspace\n- NumConns, Timeouts\n- Consistency levels
+
+Config -> GoCQL: Set authenticator
+note right: cluster.Authenticator = auth
+
+Config -> GoCQL: Set TLS options
+note right: cluster.SslOpts = &gocql.SslOptions{\n  Config: tlsConfig\n}
+
+alt Multi-DC Setup
+    Config -> GoCQL: Configure host selection policy
+    note right: DC-aware routing:\n- DCAwareRoundRobinPolicy\n- TokenAwareHostPolicy
+end
+
+GoCQL --> Config: *gocql.ClusterConfig
+deactivate GoCQL
+
+Config -> Config: Apply security settings
+note right: Additional security:\n- DisableInitialHostLookup = false\n- IgnorePeerAddr = false
+
+Config --> Developer: Secure cluster config
+deactivate Config
+
+== Security Assessment ==
+
+Developer -> Config: GetSecurityLevel()
+activate Config
+
+Config -> Config: Calculate security score
+note right: Scoring (0-100):\n- TLS: 40 points max\n- Auth: 30 points max\n- Consistency: 20 points max\n- HA: 10 points max
+
+Config -> Config: Identify security issues
+note right: Check for:\n- Missing TLS\n- No authentication\n- Weak consistency\n- Insufficient hosts
+
+Config --> Developer: (level, score, issues)
+note right: Security levels:\n- Excellent (90-100)\n- Good (70-89)\n- Fair (50-69)\n- Poor (30-49)\n- Critical (0-29)
+deactivate Config
+
+== Connection to ScyllaDB ==
+
+Cluster -> GoCQL: CreateSession(clusterConfig)
+activate GoCQL
+
+GoCQL -> ScyllaDB: Establish TLS connection
+activate ScyllaDB
+
+ScyllaDB -> GoCQL: TLS handshake
+note right: Mutual TLS:\n- Server cert validation\n- Client cert authentication
+
+GoCQL -> ScyllaDB: Authenticate
+note right: Username/password\nauthentication
+
+ScyllaDB --> GoCQL: Authentication success
+GoCQL --> Cluster: Session established
+deactivate GoCQL
+deactivate ScyllaDB
+
+note over Cluster, ScyllaDB
+  **Task 2 Complete:**
+  - Configuration structure with all fields ✓
+  - JSON marshaling/unmarshaling ✓
+  - Comprehensive validation ✓
+  - TLS with certificate support ✓
+  - Username/password authentication ✓
+  - Secure connection methods ✓
+  - Security assessment system ✓
+end note
+
+@enduml

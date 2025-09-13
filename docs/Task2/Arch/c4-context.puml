@@ -1,0 +1,30 @@
+@startuml C4_Context
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
+
+title ScyllaDB State Store - Context Diagram
+
+Person(developer, "Developer", "Configures and uses ScyllaDB state store")
+Person(devops, "DevOps Engineer", "Deploys and manages ScyllaDB infrastructure")
+
+System(ipfs_cluster, "IPFS Cluster", "Distributed IPFS cluster system")
+System_Ext(scylladb, "ScyllaDB Cluster", "High-performance NoSQL database cluster")
+
+Rel(developer, ipfs_cluster, "Configures state store")
+Rel(devops, scylladb, "Manages database cluster")
+Rel(ipfs_cluster, scylladb, "Stores cluster state", "CQL/TLS")
+
+note right of scylladb
+  - Multi-node cluster
+  - TLS encryption
+  - Authentication required
+  - High availability
+end note
+
+note left of ipfs_cluster
+  - Uses ScyllaDB for state persistence
+  - Configurable connection settings
+  - Security validation
+  - Environment-based config
+end note
+
+@enduml
