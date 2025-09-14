@@ -1,8 +1,651 @@
-# Проектный Документ
+# Design Document
 
-## Обзор
+## Overview
 
-Данный проект реализует интеграцию ScyllaDB как бэкенда хранилища состояния для IPFS-Cluster, заменяя существующие решения на основе консенсуса (etcd/Consul/CRDT) масштабируемой, высокопроизводительной распределенной базой данных. Интеграция позволит управлять триллионами пинов с предсказуемой производительностью и линейной масштабируемостью.
+This project implements ScyllaDB integration as a state storage backend for IPFS-Cluster, replacing existing consensus-based solutions (etcd/Consul/CRDT) with a scalable, high-performance distributed database. The integration will enable managing trillions of pins with predictable performance and linear scalability.
+
+## Architecture
+
+### High-Level Architecture
+
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│  IPFS-Cluster   │    │  IPFS-Cluster   │    │  IPFS-Cluster   │
+│     Node 1      │    │     Node 2      │    │     Node N      │
+│                 │    │                 │    │                 │
+│ ┌─────────────┐ │    │ ┌─────────────┐ │    │ ┌─────────────┐ │
+│ │ScyllaDB     │ │    │ │ScyllaDB     │ │    │ │ScyllaDB     │ │
+│ │State        │ │    │ │State        │ │    │ │State        │ │
+│ │Storage      │ │    │ │Storage      │ │    │ │Storage      │ │
+│ └─────────────┘ │    │ └─────────────┘ │    │ └─────────────┘ │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+         │                       │                       │
+         └───────────────────────┼───────────────────────┘
+                                 │
+                    ┌─────────────────────────┐
+                    │    ScyllaDB Cluster     │
+                    │                         │
+                    │  ┌─────┐ ┌─────┐ ┌─────┐│
+                    │  │Node1│ │Node2│ │NodeN││
+                    │  └─────┘ └─────┘ └─────┘│
+                    └─────────────────────────┘
+```
+
+### Integration Architecture
+
+ScyllaDB State Store implements the `state.State` interface and integrates into IPFS-Cluster as a new state storage type:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    IPFS-Cluster                             │
+│                                                             │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
+│  │  Cluster    │  │ Consensus   │  │   State             │  │
+│  │  Manager    │  │   Layer     │  │   Storage           │  │
+│  │             │  │             │  │                     │  │
+│  │             │  │             │  │ ┌─────────────────┐ │  │
+│  │             │  │             │  │ │  ScyllaDB       │ │  │
+│  │             │  │             │  │ │  Storage        │ │  │
+│  │             │  │             │  │ │  (New)          │ │  │
+│  │             │  │             │  │ └─────────────────┘ │  │
+│  │             │  │             │  │ ┌─────────────────┐ │  │
+│  │             │  │             │  │ │  CRDT           │ │  │
+│  │             │  │             │  │ │  (Existing)     │ │  │
+│  │             │  │             │  │ └─────────────────┘ │  │
+│  └─────────────┘  └─────────────┘  └─────────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+                    ┌─────────────────┐
+                    │ ScyllaDB Driver │
+                    │    (gocql)      │
+                    └─────────────────┘
+                              │
+                              ▼
+                    ┌─────────────────┐
+                    │ ScyllaDB Cluster│
+                    └─────────────────┘
+```
+
+## Components and Interfaces
+
+### 1. ScyllaDB State Storage
+
+**Location:** `state/scyllastate/`
+
+**Main Files:**
+- `scyllastate.go` - main implementation
+- `config.go` - configuration
+- `migrations.go` - DB schema and migrations
+- `scyllastate_test.go` - tests
+
+**Interfaces:**
+```go
+// Implements state.State
+type ScyllaState struct {
+    session     *gocql.Session
+    keyspace    string
+    config      *Config
+    codecHandle codec.Handle
+    totalPins   int64
+    metrics     *Metrics
+}
+
+// Implements state.BatchingState  
+type ScyllaBatchingState struct {
+    *ScyllaState
+    batch *gocql.Batch
+}
+```
+
+### 2. Configuration
+
+**Configuration Structure:**
+```go
+type Config struct {
+    config.Saver
+    
+    // Cluster connection
+    Hosts               []string
+    Port                int
+    Keyspace            string
+    Username            string
+    Password            string
+    
+    // TLS settings
+    TLSEnabled          bool
+    TLSCertFile         string
+    TLSKeyFile          string
+    TLSCAFile           string
+    TLSInsecureSkipVerify bool
+    
+    // Performance settings
+    NumConns            int
+    Timeout             time.Duration
+    ConnectTimeout      time.Duration
+    
+    // Consistency settings
+    Consistency         gocql.Consistency
+    SerialConsistency   gocql.SerialConsistency
+    
+    // Retry and backoff settings
+    RetryPolicy         RetryPolicyConfig
+    
+    // Batch processing settings
+    BatchSize           int
+    BatchTimeout        time.Duration
+    
+    // Monitoring
+    MetricsEnabled      bool
+    TracingEnabled      bool
+}
+
+type RetryPolicyConfig struct {
+    NumRetries      int
+    MinRetryDelay   time.Duration
+    MaxRetryDelay   time.Duration
+}
+```
+
+### 3. Data Schema
+
+**Keyspace and Tables:**
+
+```cql
+-- Main table for storing pin metadata (source of truth)
+CREATE TABLE IF NOT EXISTS ipfs_pins.pins_by_cid (
+    mh_prefix smallint,          -- First 2 bytes of digest for sharding
+    cid_bin blob,                -- Binary multihash
+    pin_type tinyint,            -- 0=direct, 1=recursive
+    rf tinyint,                  -- Required replication factor
+    owner text,                  -- Owner/tenant
+    tags set<text>,              -- Tags for categorization
+    ttl timestamp,               -- Scheduled auto-removal (NULL = permanent)
+    metadata map<text, text>,    -- Additional metadata
+    created_at timestamp,        -- Pin creation time
+    updated_at timestamp,        -- Last update time
+    PRIMARY KEY ((mh_prefix), cid_bin)
+) WITH compaction = {'class': 'LeveledCompactionStrategy'};
+
+-- Placement tracking table - desired vs actual peer assignments
+CREATE TABLE IF NOT EXISTS ipfs_pins.placements_by_cid (
+    mh_prefix smallint,
+    cid_bin blob,
+    desired set<text>,           -- List of peer_id where pin should be placed
+    actual set<text>,            -- List of peer_id where pin is confirmed
+    updated_at timestamp,        -- Last placement update time
+    PRIMARY KEY ((mh_prefix), cid_bin)
+) WITH compaction = {'class': 'LeveledCompactionStrategy'};
+
+-- Reverse index - pins by peer for efficient worker queries
+CREATE TABLE IF NOT EXISTS ipfs_pins.pins_by_peer (
+    peer_id text,
+    mh_prefix smallint,
+    cid_bin blob,
+    state tinyint,               -- 0=queued, 1=pinning, 2=pinned, 3=error, 4=unpinned
+    last_seen timestamp,         -- Last status update from peer
+    PRIMARY KEY ((peer_id), mh_prefix, cid_bin)
+) WITH compaction = {'class': 'LeveledCompactionStrategy'};
+
+-- TTL queue for scheduled pin removal
+CREATE TABLE IF NOT EXISTS ipfs_pins.pin_ttl_queue (
+    ttl_bucket timestamp,        -- Hourly bucket (UTC, truncated to hour)
+    cid_bin blob,
+    owner text,
+    ttl timestamp,               -- Exact TTL time
+    PRIMARY KEY ((ttl_bucket), ttl, cid_bin)
+) WITH compaction = {
+    'class': 'TimeWindowCompactionStrategy',
+    'compaction_window_unit': 'DAYS', 
+    'compaction_window_size': '1'
+};
+
+-- Operation deduplication for idempotency
+CREATE TABLE IF NOT EXISTS ipfs_pins.op_dedup (
+    op_id text,                  -- ULID/UUID from client
+    ts timestamp,                -- Operation timestamp
+    PRIMARY KEY (op_id)
+) WITH default_time_to_live = 604800; -- 7 days
+```
+
+## Data Models
+
+### Pin Serialization
+
+Uses existing `api.Pin.ProtoMarshal()` serialization mechanism for compatibility:
+
+```go
+func (s *ScyllaState) serializePin(pin api.Pin) ([]byte, error) {
+    return pin.ProtoMarshal()
+}
+
+func (s *ScyllaState) deserializePin(cid api.Cid, data []byte) (api.Pin, error) {
+    var pin api.Pin
+    err := pin.ProtoUnmarshal(data)
+    if err != nil {
+        return api.Pin{}, err
+    }
+    pin.Cid = cid
+    return pin, nil
+}
+```
+
+### Keys and Partitioning
+
+```go
+// Extract multihash prefix for partitioning
+func mhPrefix(cidBin []byte) int16 {
+    if len(cidBin) < 2 {
+        return 0
+    }
+    return int16(cidBin[0])<<8 | int16(cidBin[1])
+}
+
+// Even distribution across 65536 partitions
+func cidToPartitionedKey(cidBin []byte) (int16, []byte) {
+    prefix := mhPrefix(cidBin)
+    return prefix, cidBin
+}
+```
+
+## Error Handling
+
+### Retry Strategies
+
+```go
+type RetryPolicy struct {
+    numRetries    int
+    minDelay      time.Duration
+    maxDelay      time.Duration
+    backoffFactor float64
+}
+
+func (rp *RetryPolicy) Execute(ctx context.Context, operation func() error) error {
+    var lastErr error
+    
+    for attempt := 0; attempt <= rp.numRetries; attempt++ {
+        if attempt > 0 {
+            delay := rp.calculateDelay(attempt)
+            select {
+            case <-ctx.Done():
+                return ctx.Err()
+            case <-time.After(delay):
+            }
+        }
+        
+        if err := operation(); err != nil {
+            lastErr = err
+            if !rp.isRetryable(err) {
+                return err
+            }
+            continue
+        }
+        return nil
+    }
+    
+    return fmt.Errorf("operation failed after %d attempts: %w", 
+                     rp.numRetries, lastErr)
+}
+```
+
+### Node Failure Handling
+
+```go
+func (s *ScyllaState) handleNodeFailure(err error) error {
+    if gocql.IsTimeoutError(err) || gocql.IsUnavailableError(err) {
+        // Log warning but don't return critical error
+        logger.Warnf("ScyllaDB node temporarily unavailable: %v", err)
+        return err
+    }
+    
+    if gocql.IsWriteTimeoutError(err) {
+        // For write timeout try with lower consistency level
+        logger.Warnf("Write timeout, may need to adjust consistency level: %v", err)
+        return err
+    }
+    
+    return err
+}
+```
+
+## Testing Strategy
+
+### Unit Tests
+
+```go
+// Tests with mock ScyllaDB
+func TestScyllaState_Add(t *testing.T) {
+    mockSession := &MockSession{}
+    state := &ScyllaState{session: mockSession}
+    
+    pin := api.Pin{
+        Cid: testCid,
+        Type: api.DataType,
+        // ...
+    }
+    
+    err := state.Add(context.Background(), pin)
+    assert.NoError(t, err)
+    
+    // Verify correct CQL query was executed
+    assert.Equal(t, expectedQuery, mockSession.LastQuery())
+}
+```
+
+### Integration Tests
+
+```go
+// Tests with real ScyllaDB in Docker
+func TestScyllaState_Integration(t *testing.T) {
+    if testing.Short() {
+        t.Skip("Skipping integration test")
+    }
+    
+    // Start ScyllaDB in Docker container
+    container := startScyllaDBContainer(t)
+    defer container.Stop()
+    
+    config := &Config{
+        Hosts: []string{container.Host()},
+        Port: container.Port(),
+        // ...
+    }
+    
+    state, err := New(context.Background(), config)
+    require.NoError(t, err)
+    
+    // Test full pin lifecycle operations
+    testFullPinLifecycle(t, state)
+}
+```
+
+### Performance Tests
+
+```go
+func BenchmarkScyllaState_Add(b *testing.B) {
+    state := setupBenchmarkState(b)
+    pins := generateTestPins(b.N)
+    
+    b.ResetTimer()
+    b.RunParallel(func(pb *testing.PB) {
+        i := 0
+        for pb.Next() {
+            err := state.Add(context.Background(), pins[i%len(pins)])
+            if err != nil {
+                b.Fatal(err)
+            }
+            i++
+        }
+    })
+}
+```
+
+## Monitoring and Metrics
+
+### Prometheus Metrics
+
+```go
+type Metrics struct {
+    // Operational metrics
+    operationDuration *prometheus.HistogramVec
+    operationCounter  *prometheus.CounterVec
+    
+    // Connection metrics
+    activeConnections prometheus.Gauge
+    connectionErrors  prometheus.Counter
+    
+    // State metrics
+    totalPins         prometheus.Gauge
+    pinOperationsRate prometheus.Counter
+    
+    // ScyllaDB metrics
+    queryLatency      *prometheus.HistogramVec
+    timeoutErrors     prometheus.Counter
+    unavailableErrors prometheus.Counter
+}
+
+func (m *Metrics) RecordOperation(operation string, duration time.Duration, err error) {
+    labels := prometheus.Labels{"operation": operation}
+    
+    if err != nil {
+        labels["status"] = "error"
+        m.operationCounter.With(labels).Inc()
+    } else {
+        labels["status"] = "success"
+        m.operationCounter.With(labels).Inc()
+        m.operationDuration.With(labels).Observe(duration.Seconds())
+    }
+}
+```
+
+### Logging
+
+```go
+// Structured logging with context
+func (s *ScyllaState) logOperation(ctx context.Context, operation string, cid api.Cid, duration time.Duration, err error) {
+    fields := map[string]interface{}{
+        "operation": operation,
+        "cid":       cid.String(),
+        "duration":  duration,
+    }
+    
+    if err != nil {
+        fields["error"] = err.Error()
+        logger.WithFields(fields).Error("ScyllaDB operation failed")
+    } else {
+        logger.WithFields(fields).Debug("ScyllaDB operation completed")
+    }
+}
+```
+
+## Migration and Compatibility
+
+### Migration from Existing Backends
+
+```go
+type Migrator struct {
+    source      state.State
+    destination *ScyllaState
+    batchSize   int
+}
+
+func (m *Migrator) Migrate(ctx context.Context) error {
+    pinChan := make(chan api.Pin, m.batchSize)
+    
+    // Start goroutine to read from source
+    go func() {
+        defer close(pinChan)
+        err := m.source.List(ctx, pinChan)
+        if err != nil {
+            logger.Errorf("Error listing pins from source: %v", err)
+        }
+    }()
+    
+    // Batch write to ScyllaDB
+    batch := make([]api.Pin, 0, m.batchSize)
+    
+    for pin := range pinChan {
+        batch = append(batch, pin)
+        
+        if len(batch) >= m.batchSize {
+            if err := m.writeBatch(ctx, batch); err != nil {
+                return err
+            }
+            batch = batch[:0]
+        }
+    }
+    
+    // Write remaining pins
+    if len(batch) > 0 {
+        return m.writeBatch(ctx, batch)
+    }
+    
+    return nil
+}
+```
+
+### Backward Compatibility
+
+The implementation is fully compatible with the `state.State` interface, allowing it to be used as a drop-in replacement for existing implementations without changing IPFS-Cluster code.
+
+## Deployment and Configuration
+
+### Example Configuration
+
+```json
+{
+  "state": {
+    "datastore": "scylladb",
+    "scylladb": {
+      "hosts": ["scylla1.example.com", "scylla2.example.com", "scylla3.example.com"],
+      "port": 9042,
+      "keyspace": "ipfs_pins",
+      "username": "cluster_user",
+      "password": "secure_password",
+      "tls_enabled": true,
+      "tls_cert_file": "/etc/ssl/certs/client.crt",
+      "tls_key_file": "/etc/ssl/private/client.key",
+      "tls_ca_file": "/etc/ssl/certs/ca.crt",
+      "num_conns": 10,
+      "timeout": "30s",
+      "connect_timeout": "10s",
+      "consistency": "QUORUM",
+      "serial_consistency": "SERIAL",
+      "retry_policy": {
+        "num_retries": 3,
+        "min_retry_delay": "100ms",
+        "max_retry_delay": "10s"
+      },
+      "batch_size": 1000,
+      "batch_timeout": "1s",
+      "metrics_enabled": true,
+      "tracing_enabled": false
+    }
+  }
+}
+```
+
+### Multi-Datacenter Deployment
+
+```json
+{
+  "scylladb": {
+    "hosts": [
+      "dc1-scylla1.example.com",
+      "dc1-scylla2.example.com", 
+      "dc2-scylla1.example.com",
+      "dc2-scylla2.example.com"
+    ],
+    "local_dc": "datacenter1",
+    "consistency": "LOCAL_QUORUM",
+    "dc_aware_routing": true,
+    "token_aware_routing": true
+  }
+}
+```
+
+## Security
+
+### TLS Configuration
+
+```go
+func (c *Config) createTLSConfig() (*tls.Config, error) {
+    if !c.TLSEnabled {
+        return nil, nil
+    }
+    
+    tlsConfig := &tls.Config{
+        InsecureSkipVerify: c.TLSInsecureSkipVerify,
+    }
+    
+    if c.TLSCertFile != "" && c.TLSKeyFile != "" {
+        cert, err := tls.LoadX509KeyPair(c.TLSCertFile, c.TLSKeyFile)
+        if err != nil {
+            return nil, fmt.Errorf("failed to load client certificate: %w", err)
+        }
+        tlsConfig.Certificates = []tls.Certificate{cert}
+    }
+    
+    if c.TLSCAFile != "" {
+        caCert, err := ioutil.ReadFile(c.TLSCAFile)
+        if err != nil {
+            return nil, fmt.Errorf("failed to read CA certificate: %w", err)
+        }
+        
+        caCertPool := x509.NewCertPool()
+        if !caCertPool.AppendCertsFromPEM(caCert) {
+            return nil, fmt.Errorf("failed to parse CA certificate")
+        }
+        tlsConfig.RootCAs = caCertPool
+    }
+    
+    return tlsConfig, nil
+}
+```
+
+### Authentication
+
+```go
+func (c *Config) createAuthenticator() gocql.Authenticator {
+    if c.Username != "" && c.Password != "" {
+        return gocql.PasswordAuthenticator{
+            Username: c.Username,
+            Password: c.Password,
+        }
+    }
+    return nil
+}
+```
+
+## Performance Optimization
+
+### Connection Pools
+
+```go
+func (c *Config) createClusterConfig() *gocql.ClusterConfig {
+    cluster := gocql.NewCluster(c.Hosts...)
+    cluster.Port = c.Port
+    cluster.Keyspace = c.Keyspace
+    cluster.NumConns = c.NumConns
+    cluster.Timeout = c.Timeout
+    cluster.ConnectTimeout = c.ConnectTimeout
+    
+    // Settings for high performance
+    cluster.PoolConfig.HostSelectionPolicy = gocql.TokenAwareHostPolicy(
+        gocql.DCAwareRoundRobinPolicy(c.LocalDC),
+    )
+    
+    return cluster
+}
+```
+
+### Prepared Statements
+
+```go
+type PreparedStatements struct {
+    insertPin    *gocql.Query
+    selectPin    *gocql.Query
+    deletePin    *gocql.Query
+    listPins     *gocql.Query
+    checkExists  *gocql.Query
+}
+
+func (s *ScyllaState) prepareStatements() error {
+    var err error
+    
+    s.prepared.insertPin, err = s.session.Prepare(`
+        INSERT INTO pins_by_cid (mh_prefix, cid_bin, pin_type, rf, owner, tags, ttl, metadata, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    if err != nil {
+        return fmt.Errorf("failed to prepare insert query: %w", err)
+    }
+    
+    // Prepare other queries...
+    
+    return nil
+}
+```
 
 ## Архитектура
 

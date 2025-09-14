@@ -1,0 +1,110 @@
+# Dockerfile for IPFS-Cluster with ScyllaDB state storage
+# This builds a custom image with the ScyllaDB state store integration
+
+FROM golang:1.21-alpine AS builder
+
+# Install build dependencies
+RUN apk add --no-cache \
+    git \
+    make \
+    gcc \
+    musl-dev \
+    pkgconfig
+
+# Set working directory
+WORKDIR /build
+
+# Copy go mod files first for better caching
+COPY go.mod go.sum ./
+
+# Download dependencies
+RUN go mod download && go mod verify
+
+# Copy source code
+COPY . .
+
+# Build the binaries with ScyllaDB support
+RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build \
+    -a -installsuffix cgo \
+    -ldflags '-w -s -extldflags "-static"' \
+    -tags 'netgo osusergo static_build' \
+    -o bin/ipfs-cluster-service \
+    ./cmd/ipfs-cluster-service
+
+RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build \
+    -a -installsuffix cgo \
+    -ldflags '-w -s -extldflags "-static"' \
+    -tags 'netgo osusergo static_build' \
+    -o bin/ipfs-cluster-ctl \
+    ./cmd/ipfs-cluster-ctl
+
+# Verify binaries
+RUN ldd bin/ipfs-cluster-service || true
+RUN ldd bin/ipfs-cluster-ctl || true
+
+# Final runtime stage
+FROM alpine:3.18
+
+# Install runtime dependencies
+RUN apk add --no-cache \
+    ca-certificates \
+    su-exec \
+    tini \
+    curl \
+    jq
+
+# Create cluster user and group
+RUN addgroup -g 1000 cluster && \
+    adduser -D -u 1000 -G cluster -s /bin/sh cluster
+
+# Create necessary directories
+RUN mkdir -p /data/ipfs-cluster /etc/ipfs-cluster && \
+    chown -R cluster:cluster /data/ipfs-cluster /etc/ipfs-cluster
+
+# Copy binaries from builder stage
+COPY --from=builder /build/bin/ipfs-cluster-service /usr/local/bin/
+COPY --from=builder /build/bin/ipfs-cluster-ctl /usr/local/bin/
+
+# Copy configuration examples
+COPY --from=builder /build/examples/configurations /etc/ipfs-cluster/configurations/
+
+# Set executable permissions
+RUN chmod +x /usr/local/bin/ipfs-cluster-service /usr/local/bin/ipfs-cluster-ctl
+
+# Create entrypoint script
+COPY examples/docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# Expose ports
+# 9094: REST API
+# 9095: IPFS Proxy API  
+# 9096: Cluster swarm port
+# 8888: Metrics/monitoring
+EXPOSE 9094 9095 9096 8888
+
+# Set environment variables
+ENV CLUSTER_PATH=/data/ipfs-cluster
+ENV CLUSTER_LOGLEVEL=info
+ENV CLUSTER_RESTAPI_HTTPLISTENMULTIADDRESS=/ip4/0.0.0.0/tcp/9094
+ENV CLUSTER_IPFSPROXY_LISTENMULTIADDRESS=/ip4/0.0.0.0/tcp/9095
+ENV CLUSTER_SWARMPORT=9096
+ENV CLUSTER_METRICSPORT=8888
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:9094/api/v0/id || exit 1
+
+# Use tini as PID 1
+ENTRYPOINT ["/sbin/tini", "--", "/entrypoint.sh"]
+
+# Default command
+CMD ["daemon"]
+
+# Labels for metadata
+LABEL maintainer="IPFS-Cluster Team" \
+      version="1.1.4-scylladb" \
+      description="IPFS-Cluster with ScyllaDB state storage support" \
+      org.opencontainers.image.title="IPFS-Cluster ScyllaDB" \
+      org.opencontainers.image.description="IPFS-Cluster daemon with ScyllaDB state storage backend" \
+      org.opencontainers.image.vendor="IPFS-Cluster" \
+      org.opencontainers.image.licenses="MIT"

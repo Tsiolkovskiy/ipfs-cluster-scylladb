@@ -1,0 +1,239 @@
+version: '3.8'
+
+services:
+  # ScyllaDB 3-node cluster for testing
+  scylla-1:
+    image: scylladb/scylla:5.2
+    container_name: scylla-1
+    command: --seeds=scylla-1,scylla-2,scylla-3 --smp 2 --memory 2G --overprovisioned 1 --api-address 0.0.0.0
+    ports:
+      - "9042:9042"
+      - "9160:9160"
+      - "10000:10000"
+    volumes:
+      - scylla1_data:/var/lib/scylla
+    networks:
+      - cluster-net
+
+  scylla-2:
+    image: scylladb/scylla:5.2
+    container_name: scylla-2
+    command: --seeds=scylla-1,scylla-2,scylla-3 --smp 2 --memory 2G --overprovisioned 1 --api-address 0.0.0.0
+    ports:
+      - "9043:9042"
+      - "9161:9160"
+      - "10001:10000"
+    volumes:
+      - scylla2_data:/var/lib/scylla
+    depends_on:
+      - scylla-1
+    networks:
+      - cluster-net
+
+  scylla-3:
+    image: scylladb/scylla:5.2
+    container_name: scylla-3
+    command: --seeds=scylla-1,scylla-2,scylla-3 --smp 2 --memory 2G --overprovisioned 1 --api-address 0.0.0.0
+    ports:
+      - "9044:9042"
+      - "9162:9160"
+      - "10002:10000"
+    volumes:
+      - scylla3_data:/var/lib/scylla
+    depends_on:
+      - scylla-1
+    networks:
+      - cluster-net
+
+  # Initialize ScyllaDB schema
+  scylla-init:
+    image: scylladb/scylla:5.2
+    container_name: scylla-init
+    depends_on:
+      - scylla-1
+      - scylla-2
+      - scylla-3
+    volumes:
+      - ./scylla-init-cluster.cql:/init.cql
+    command: >
+      bash -c "
+        sleep 60 &&
+        cqlsh scylla-1 -f /init.cql
+      "
+    networks:
+      - cluster-net
+
+  # IPFS nodes
+  ipfs-1:
+    image: ipfs/kubo:latest
+    container_name: ipfs-1
+    ports:
+      - "4001:4001"
+      - "5001:5001"
+      - "8080:8080"
+    volumes:
+      - ipfs1_data:/data/ipfs
+    environment:
+      - IPFS_PROFILE=server
+    networks:
+      - cluster-net
+
+  ipfs-2:
+    image: ipfs/kubo:latest
+    container_name: ipfs-2
+    ports:
+      - "4002:4001"
+      - "5002:5001"
+      - "8081:8080"
+    volumes:
+      - ipfs2_data:/data/ipfs
+    environment:
+      - IPFS_PROFILE=server
+    networks:
+      - cluster-net
+
+  ipfs-3:
+    image: ipfs/kubo:latest
+    container_name: ipfs-3
+    ports:
+      - "4003:4001"
+      - "5003:5001"
+      - "8082:8080"
+    volumes:
+      - ipfs3_data:/data/ipfs
+    environment:
+      - IPFS_PROFILE=server
+    networks:
+      - cluster-net
+
+  # IPFS-Cluster nodes
+  cluster-1:
+    image: ipfs/ipfs-cluster:latest
+    container_name: cluster-1
+    depends_on:
+      - scylla-init
+      - ipfs-1
+    ports:
+      - "9094:9094"
+      - "9095:9095"
+      - "9096:9096"
+      - "8888:8888"
+    volumes:
+      - cluster1_data:/data/ipfs-cluster
+      - ../../configurations/multi-node/cluster.json:/data/ipfs-cluster/service.json
+    environment:
+      - CLUSTER_LOGLEVEL=info
+      - IPFS_API=/ip4/ipfs-1/tcp/5001
+    networks:
+      - cluster-net
+
+  cluster-2:
+    image: ipfs/ipfs-cluster:latest
+    container_name: cluster-2
+    depends_on:
+      - scylla-init
+      - ipfs-2
+    ports:
+      - "9194:9094"
+      - "9195:9095"
+      - "9196:9096"
+      - "8889:8888"
+    volumes:
+      - cluster2_data:/data/ipfs-cluster
+      - ../../configurations/multi-node/cluster.json:/data/ipfs-cluster/service.json
+    environment:
+      - CLUSTER_LOGLEVEL=info
+      - IPFS_API=/ip4/ipfs-2/tcp/5001
+    networks:
+      - cluster-net
+
+  cluster-3:
+    image: ipfs/ipfs-cluster:latest
+    container_name: cluster-3
+    depends_on:
+      - scylla-init
+      - ipfs-3
+    ports:
+      - "9294:9094"
+      - "9295:9095"
+      - "9296:9096"
+      - "8890:8888"
+    volumes:
+      - cluster3_data:/data/ipfs-cluster
+      - ../../configurations/multi-node/cluster.json:/data/ipfs-cluster/service.json
+    environment:
+      - CLUSTER_LOGLEVEL=info
+      - IPFS_API=/ip4/ipfs-3/tcp/5001
+    networks:
+      - cluster-net
+
+  # Load testing tool
+  load-tester:
+    image: golang:1.21-alpine
+    container_name: load-tester
+    depends_on:
+      - cluster-1
+      - cluster-2
+      - cluster-3
+    volumes:
+      - ../../benchmarks:/benchmarks
+      - ./load-test-config.json:/config.json
+    working_dir: /benchmarks
+    command: >
+      sh -c "
+        sleep 120 &&
+        go run load-testing/cluster_load_test.go -config=/config.json
+      "
+    networks:
+      - cluster-net
+
+  # Monitoring stack
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus-test
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus-cluster.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - cluster-net
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana-test
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ../../monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ../../monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    networks:
+      - cluster-net
+
+volumes:
+  scylla1_data:
+  scylla2_data:
+  scylla3_data:
+  ipfs1_data:
+  ipfs2_data:
+  ipfs3_data:
+  cluster1_data:
+  cluster2_data:
+  cluster3_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  cluster-net:
+    driver: bridge

@@ -1,52 +1,78 @@
-FROM --platform=${BUILDPLATFORM:-linux/amd64} golang:1.24-bullseye AS builder
+# Multi-stage build for IPFS-Cluster with ScyllaDB state storage
+FROM golang:1.21-alpine AS builder
 
-# This dockerfile builds and runs ipfs-cluster-service.
-ARG TARGETOS TARGETARCH
+# Install build dependencies
+RUN apk add --no-cache git make gcc musl-dev
 
-ENV GOPATH=/go
-ENV SRC_PATH=$GOPATH/src/github.com/ipfs-cluster/ipfs-cluster
-ENV GOPROXY=https://proxy.golang.org
+# Set working directory
+WORKDIR /app
 
-COPY --chown=1000:users go.* $SRC_PATH/
-WORKDIR $SRC_PATH
-RUN go mod download -x
+# Copy go mod files
+COPY go.mod go.sum ./
 
-COPY --chown=1000:users . $SRC_PATH
-RUN git config --global --add safe.directory /go/src/github.com/ipfs-cluster/ipfs-cluster
+# Download dependencies
+RUN go mod download
 
-ENV CGO_ENABLED=0
-RUN GOOS=$TARGETOS GOARCH=$TARGETARCH make build
+# Copy source code
+COPY . .
 
-#------------------------------------------------------
-FROM alpine:3.21
+# Build the IPFS-Cluster daemon with ScyllaDB support
+RUN CGO_ENABLED=1 GOOS=linux go build -a -ldflags '-extldflags "-static"' -o ipfs-cluster-service ./cmd/ipfs-cluster-service
+RUN CGO_ENABLED=1 GOOS=linux go build -a -ldflags '-extldflags "-static"' -o ipfs-cluster-ctl ./cmd/ipfs-cluster-ctl
 
-LABEL org.opencontainers.image.source=https://github.com/ipfs-cluster/ipfs-cluster
-LABEL org.opencontainers.image.description="Pinset orchestration for IPFS"
-LABEL org.opencontainers.image.licenses=MIT+APACHE_2.0
+# Final stage - minimal runtime image
+FROM alpine:3.18
 
-# Install binaries for $TARGETARCH
-RUN apk add --no-cache tini su-exec ca-certificates
+# Install runtime dependencies
+RUN apk add --no-cache ca-certificates su-exec tini
 
-ENV GOPATH=/go
-ENV SRC_PATH=/go/src/github.com/ipfs-cluster/ipfs-cluster
-ENV IPFS_CLUSTER_PATH=/data/ipfs-cluster
-ENV IPFS_CLUSTER_CONSENSUS=crdt
+# Create cluster user
+RUN adduser -D -s /bin/sh cluster
 
-EXPOSE 9094
-EXPOSE 9095
-EXPOSE 9096
+# Create directories
+RUN mkdir -p /data/ipfs-cluster && \
+    chown cluster:cluster /data/ipfs-cluster
 
-COPY --from=builder $SRC_PATH/cmd/ipfs-cluster-service/ipfs-cluster-service /usr/local/bin/ipfs-cluster-service
-COPY --from=builder $SRC_PATH/cmd/ipfs-cluster-ctl/ipfs-cluster-ctl /usr/local/bin/ipfs-cluster-ctl
-COPY --from=builder $SRC_PATH/cmd/ipfs-cluster-follow/ipfs-cluster-follow /usr/local/bin/ipfs-cluster-follow
-COPY --from=builder $SRC_PATH/docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+# Copy binaries from builder
+COPY --from=builder /app/ipfs-cluster-service /usr/local/bin/
+COPY --from=builder /app/ipfs-cluster-ctl /usr/local/bin/
 
-RUN mkdir -p $IPFS_CLUSTER_PATH && \
-    adduser -D -h $IPFS_CLUSTER_PATH -u 1000 -G users ipfs && \
-    chown ipfs:users $IPFS_CLUSTER_PATH
+# Copy configuration templates
+COPY --from=builder /app/examples/configurations /etc/ipfs-cluster/configurations
 
-VOLUME $IPFS_CLUSTER_PATH
-ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/entrypoint.sh"]
+# Set permissions
+RUN chmod +x /usr/local/bin/ipfs-cluster-service /usr/local/bin/ipfs-cluster-ctl
 
-# Defaults for ipfs-cluster-service go here
-CMD ["daemon"]
+# Expose ports
+EXPOSE 9094 9095 9096 8888
+
+# Set default environment variables
+ENV CLUSTER_PATH=/data/ipfs-cluster
+ENV CLUSTER_LOGLEVEL=info
+
+# Create entrypoint script
+RUN echo '#!/bin/sh' > /entrypoint.sh && \
+    echo 'set -e' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo '# Initialize cluster if no configuration exists' >> /entrypoint.sh && \
+    echo 'if [ ! -f "$CLUSTER_PATH/service.json" ]; then' >> /entrypoint.sh && \
+    echo '    echo "Initializing IPFS-Cluster..."' >> /entrypoint.sh && \
+    echo '    su-exec cluster ipfs-cluster-service init' >> /entrypoint.sh && \
+    echo 'fi' >> /entrypoint.sh && \
+    echo '' >> /entrypoint.sh && \
+    echo '# Start the cluster service' >> /entrypoint.sh && \
+    echo 'exec su-exec cluster ipfs-cluster-service daemon "$@"' >> /entrypoint.sh && \
+    chmod +x /entrypoint.sh
+
+# Use tini as init system
+ENTRYPOINT ["/sbin/tini", "--", "/entrypoint.sh"]
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD ipfs-cluster-ctl --host /ip4/127.0.0.1/tcp/9094 id || exit 1
+
+# Set user
+USER cluster
+
+# Set working directory
+WORKDIR /data/ipfs-cluster

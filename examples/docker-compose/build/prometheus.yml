@@ -1,0 +1,33 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  # - "first_rules.yml"
+  # - "second_rules.yml"
+
+scrape_configs:
+  # IPFS-Cluster metrics (built from source)
+  - job_name: 'ipfs-cluster-build'
+    static_configs:
+      - targets: ['cluster:8888']
+    scrape_interval: 5s
+    metrics_path: /debug/metrics/prometheus
+
+  # ScyllaDB metrics
+  - job_name: 'scylladb'
+    static_configs:
+      - targets: ['scylla:9180']
+    scrape_interval: 10s
+
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # IPFS node metrics (if available)
+  - job_name: 'ipfs'
+    static_configs:
+      - targets: ['ipfs:5001']
+    metrics_path: /debug/metrics/prometheus
+    scrape_interval: 10s

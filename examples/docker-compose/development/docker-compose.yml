@@ -1,0 +1,107 @@
+version: '3.8'
+
+services:
+  # ScyllaDB single node for development
+  scylla:
+    image: scylladb/scylla:5.2
+    container_name: scylla-dev
+    command: --seeds=scylla --smp 1 --memory 1G --overprovisioned 1 --api-address 0.0.0.0
+    ports:
+      - "9042:9042"
+      - "9160:9160"
+      - "10000:10000"
+    volumes:
+      - scylla_data:/var/lib/scylla
+      - ./scylla-init.cql:/docker-entrypoint-initdb.d/init.cql
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -e 'describe cluster'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - cluster-net
+
+  # IPFS node
+  ipfs:
+    image: ipfs/kubo:latest
+    container_name: ipfs-dev
+    ports:
+      - "4001:4001"
+      - "5001:5001"
+      - "8080:8080"
+    volumes:
+      - ipfs_data:/data/ipfs
+    environment:
+      - IPFS_PROFILE=server
+    networks:
+      - cluster-net
+
+  # IPFS-Cluster node with ScyllaDB backend
+  cluster:
+    image: ipfs/ipfs-cluster:latest
+    container_name: cluster-dev
+    depends_on:
+      scylla:
+        condition: service_healthy
+      ipfs:
+        condition: service_started
+    ports:
+      - "9094:9094"
+      - "9095:9095"
+      - "9096:9096"
+      - "8888:8888"
+    volumes:
+      - cluster_data:/data/ipfs-cluster
+      - ../../configurations/single-node/cluster.json:/data/ipfs-cluster/service.json
+    environment:
+      - CLUSTER_LOGLEVEL=info
+      - IPFS_API=/ip4/ipfs/tcp/5001
+    networks:
+      - cluster-net
+
+  # Prometheus for metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus-dev
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - cluster-net
+
+  # Grafana for visualization
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana-dev
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ../../monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ../../monitoring/grafana/datasources:/etc/grafana/provisioning/datasources
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    networks:
+      - cluster-net
+
+volumes:
+  scylla_data:
+  ipfs_data:
+  cluster_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  cluster-net:
+    driver: bridge

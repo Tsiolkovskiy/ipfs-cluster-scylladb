@@ -1,143 +1,143 @@
-# Документ Требований
+# Requirements Document
 
-## Введение
+## Introduction
 
-Данная функция реализует бэкенд хранилища состояния на основе ScyllaDB для IPFS-Cluster, чтобы обеспечить управление наборами пинов триллионного масштаба в распределенной, отказоустойчивой манере. Текущий IPFS-Cluster использует хранилище на основе консенсуса (etcd/Consul/CRDT), которое имеет ограничения для массивных развертываний. Интегрируя ScyllaDB как бэкенд хранилища состояния, мы можем достичь линейной масштабируемости, высокой доступности и предсказуемых операций с низкой задержкой для управления метаданными пинов в глобально распределенных IPFS кластерах.
+This feature implements a ScyllaDB-based state storage backend for IPFS-Cluster to enable trillion-scale pin set management in a distributed, fault-tolerant manner. Current IPFS-Cluster uses consensus-based storage (etcd/Consul/CRDT) which has limitations for massive deployments. By integrating ScyllaDB as a state storage backend, we can achieve linear scalability, high availability, and predictable low-latency operations for managing pin metadata in globally distributed IPFS clusters.
 
-## Требования
+## Requirements
 
-### Требование 1
+### Requirement 1
 
-**Пользовательская история:** Как администратор кластера, я хочу настроить IPFS-Cluster для использования ScyllaDB в качестве бэкенда хранилища состояния, чтобы управлять наборами пинов триллионного масштаба с высокой производительностью и доступностью.
+**User Story:** As a cluster administrator, I want to configure IPFS-Cluster to use ScyllaDB as the state storage backend, so that I can manage trillion-scale pin sets with high performance and availability.
 
-#### Критерии Приемки
+#### Acceptance Criteria
 
-1. КОГДА администратор кластера настраивает параметры подключения ScyllaDB ТО система ДОЛЖНА проверить настройки подключения и установить соединение с кластером ScyllaDB
-2. КОГДА бэкенд ScyllaDB включен ТО система ДОЛЖНА инициализировать необходимые keyspace и таблицы, если они не существуют
-3. ЕСЛИ кластер ScyllaDB недоступен при запуске ТО система ДОЛЖНА повторять попытки подключения с экспоненциальной задержкой и записывать соответствующие сообщения об ошибках
-4. КОГДА конфигурация обновляется ТО система ДОЛЖНА поддерживать горячую перезагрузку параметров подключения ScyllaDB без перезапуска кластера
+1. WHEN cluster administrator configures ScyllaDB connection parameters THEN system SHALL validate connection settings and establish connection to ScyllaDB cluster
+2. WHEN ScyllaDB backend is enabled THEN system SHALL initialize required keyspace and tables if they don't exist
+3. IF ScyllaDB cluster is unavailable at startup THEN system SHALL retry connection attempts with exponential backoff and log appropriate error messages
+4. WHEN configuration is updated THEN system SHALL support hot reload of ScyllaDB connection parameters without cluster restart
 
-### Требование 2
+### Requirement 2
 
-**Пользовательская история:** Как узел IPFS-Cluster, я хочу сохранять и извлекать информацию о состоянии пинов из ScyllaDB, чтобы метаданные пинов были распределены и реплицированы по кластеру базы данных.
+**User Story:** As an IPFS-Cluster node, I want to store and retrieve pin state information from ScyllaDB, so that pin metadata is distributed and replicated across the database cluster.
 
-#### Критерии Приемки
+#### Acceptance Criteria
 
-1. КОГДА запрашивается операция пина ТО система ДОЛЖНА сохранить метаданные пина (CID, фактор репликации, временная метка, размещения) в ScyllaDB
-2. КОГДА извлекается состояние пина ТО система ДОЛЖНА запросить ScyllaDB и вернуть текущую информацию о пине с согласованной семантикой чтения
-3. КОГДА обновляется статус пина ТО система ДОЛЖНА использовать условные обновления для предотвращения состояний гонки
-4. КОГДА удаляются пины ТО система ДОЛЖНА удалить все связанные метаданные из ScyllaDB с правильной очисткой
+1. WHEN pin operation is requested THEN system SHALL store pin metadata (CID, replication factor, timestamp, placements) in ScyllaDB
+2. WHEN pin state is retrieved THEN system SHALL query ScyllaDB and return current pin information with consistent read semantics
+3. WHEN pin status is updated THEN system SHALL use conditional updates to prevent race conditions
+4. WHEN pins are removed THEN system SHALL delete all associated metadata from ScyllaDB with proper cleanup
 
-### Требование 3
+### Requirement 3
 
-**Пользовательская история:** Как системный оператор, я хочу, чтобы хранилище состояния ScyllaDB корректно обрабатывало сбои узлов, чтобы состояние пинов оставалось доступным даже когда некоторые узлы кластера недоступны.
+**User Story:** As a system operator, I want the ScyllaDB state storage to handle node failures gracefully, so that pin state remains available even when some cluster nodes are unavailable.
 
-#### Критерии Приемки
+#### Acceptance Criteria
 
-1. КОГДА узлы ScyllaDB становятся недоступными ТО система ДОЛЖНА продолжать работу с оставшимися доступными узлами
-2. КОГДА операции записи терпят неудачу из-за недостаточного количества реплик ТО система ДОЛЖНА повторять попытки с соответствующей задержкой и в конечном итоге возвращать ошибку, если не может достичь согласованности
-3. КОГДА операции чтения сталкиваются со сбоями узлов ТО система ДОЛЖНА автоматически переключаться на доступные реплики
-4. КОГДА происходят сетевые разделения ТО система ДОЛЖНА поддерживать итоговую согласованность и корректно обрабатывать восстановление разделов
+1. WHEN ScyllaDB nodes become unavailable THEN system SHALL continue operating with remaining available nodes
+2. WHEN write operations fail due to insufficient replicas THEN system SHALL retry with appropriate backoff and eventually return error if consistency cannot be achieved
+3. WHEN read operations encounter node failures THEN system SHALL automatically failover to available replicas
+4. WHEN network partitions occur THEN system SHALL maintain eventual consistency and handle partition recovery correctly
 
-### Требование 4
+### Requirement 4
 
-**Пользовательская история:** Как разработчик, я хочу, чтобы хранилище состояния ScyllaDB реализовывало существующий интерфейс state.Store, чтобы его можно было использовать как прямую замену текущих бэкендов состояния.
+**User Story:** As a developer, I want the ScyllaDB state storage to implement the existing state.Store interface, so that it can be used as a drop-in replacement for current state backends.
 
-#### Критерии Приемки
+#### Acceptance Criteria
 
-1. КОГДА реализуется бэкенд ScyllaDB ТО он ДОЛЖЕН полностью реализовать интерфейс state.Store без нарушающих изменений
-2. КОГДА вызываются операции состояния ТО они ДОЛЖНЫ поддерживать ту же семантику, что и существующие реализации
-3. КОГДА происходит миграция с существующих бэкендов ТО система ДОЛЖНА предоставить утилиты миграции для переноса данных состояния
-4. КОГДА выполняются тесты ТО бэкенд ScyllaDB ДОЛЖЕН проходить все существующие наборы тестов хранилища состояния
+1. WHEN ScyllaDB backend is implemented THEN it SHALL fully implement the state.Store interface without breaking changes
+2. WHEN state operations are called THEN they SHALL maintain the same semantics as existing implementations
+3. WHEN migrating from existing backends THEN system SHALL provide migration utilities for transferring state data
+4. WHEN tests are executed THEN ScyllaDB backend SHALL pass all existing state storage test suites
 
-### Требование 5
+### Requirement 5
 
-**Пользовательская история:** Как оператор кластера, я хочу комплексный мониторинг и наблюдаемость для хранилища состояния ScyllaDB, чтобы отслеживать производительность и эффективно устранять проблемы.
+**User Story:** As a cluster operator, I want comprehensive monitoring and observability for the ScyllaDB state storage, so that I can track performance and troubleshoot issues effectively.
 
-#### Критерии Приемки
+#### Acceptance Criteria
 
-1. КОГДА выполняются операции ScyllaDB ТО система ДОЛЖНА генерировать метрики для задержки операций, показателей успеха/неудачи и статуса пула соединений
-2. КОГДА возникают ошибки ТО система ДОЛЖНА записывать детальную информацию об ошибках, включая специфичные для ScyllaDB коды ошибок и попытки повтора
-3. КОГДА системы мониторинга запрашивают метрики ТО они ДОЛЖНЫ получать статистику в реальном времени о производительности и состоянии ScyllaDB
-4. КОГДА отлаживаются проблемы ТО операторы ДОЛЖНЫ иметь доступ к трассировке на уровне запросов и данным профилирования производительности
+1. WHEN ScyllaDB operations are performed THEN system SHALL generate metrics for operation latency, success/failure rates, and connection pool status
+2. WHEN errors occur THEN system SHALL log detailed error information including ScyllaDB-specific error codes and retry attempts
+3. WHEN monitoring systems query metrics THEN they SHALL receive real-time statistics about ScyllaDB performance and health
+4. WHEN debugging issues THEN operators SHALL have access to query-level tracing and performance profiling data
 
-### Требование 6
+### Requirement 6
 
-**Пользовательская история:** Как системный архитектор, я хочу, чтобы интеграция ScyllaDB поддерживала развертывания в нескольких дата-центрах, чтобы состояние пинов могло реплицироваться между географическими регионами для аварийного восстановления.
+**User Story:** As a system architect, I want the ScyllaDB integration to support multi-datacenter deployments, so that pin state can be replicated across geographical regions for disaster recovery.
 
-#### Критерии Приемки
+#### Acceptance Criteria
 
-1. КОГДА настраивается мульти-DC установка ТО система ДОЛЖНА поддерживать стратегии репликации ScyllaDB с учетом дата-центров
-2. КОГДА происходят записи ТО система ДОЛЖНА соблюдать настроенные уровни согласованности для межцентровой репликации
-3. КОГДА происходят сбои дата-центра ТО система ДОЛЖНА продолжать работу из оставшихся дата-центров
-4. КОГДА сетевая задержка варьируется между DC ТО система ДОЛЖНА оптимизировать операции чтения, используя предпочтения локального дата-центра
+1. WHEN multi-DC setup is configured THEN system SHALL support ScyllaDB datacenter-aware replication strategies
+2. WHEN writes occur THEN system SHALL respect configured consistency levels for cross-datacenter replication
+3. WHEN datacenter failures occur THEN system SHALL continue operating from remaining datacenters
+4. WHEN network latency varies between DCs THEN system SHALL optimize read operations using local datacenter preferences
 
-### Требование 7
+### Requirement 7
 
-**Пользовательская история:** Как инженер по производительности, я хочу, чтобы хранилище состояния ScyllaDB оптимизировалось для высокопроизводительных операций пинов, чтобы система могла эффективно обрабатывать массивные параллельные рабочие нагрузки.
+**User Story:** As a performance engineer, I want the ScyllaDB state storage to be optimized for high-throughput pin operations, so that the system can efficiently handle massive concurrent workloads.
 
-#### Критерии Приемки
+#### Acceptance Criteria
 
-1. КОГДА происходят параллельные операции пинов ТО система ДОЛЖНА использовать пулы соединений и подготовленные запросы для оптимальной производительности
-2. КОГДА доступны пакетные операции ТО система ДОЛЖНА группировать множественные операции пинов в эффективные пакетные записи
-3. КОГДА шаблоны запросов предсказуемы ТО система ДОЛЖНА реализовать соответствующие стратегии кэширования для часто запрашиваемых данных
-4. КОГДА под высокой нагрузкой ТО система ДОЛЖНА реализовать механизмы противодавления для предотвращения истощения ресурсов
+1. WHEN concurrent pin operations occur THEN system SHALL use connection pools and prepared statements for optimal performance
+2. WHEN batch operations are available THEN system SHALL group multiple pin operations into efficient batch writes
+3. WHEN query patterns are predictable THEN system SHALL implement appropriate caching strategies for frequently accessed data
+4. WHEN under high load THEN system SHALL implement backpressure mechanisms to prevent resource exhaustion
 
-### Требование 8
+### Requirement 8
 
-**Пользовательская история:** Как администратор безопасности, я хочу, чтобы интеграция ScyllaDB поддерживала безопасные соединения и аутентификацию, чтобы данные состояния пинов были защищены при передаче и хранении.
+**User Story:** As a security administrator, I want the ScyllaDB integration to support secure connections and authentication, so that pin state data is protected in transit and at rest.
 
-#### Критерии Приемки
+#### Acceptance Criteria
 
-1. КОГДА подключается к ScyllaDB ТО система ДОЛЖНА поддерживать TLS шифрование для всех коммуникаций
-2. КОГДА происходит аутентификация ТО система ДОЛЖНА поддерживать методы аутентификации по имени пользователя/паролю и на основе сертификатов
-3. КОГДА сохраняются чувствительные данные ТО система ДОЛЖНА поддерживать возможности шифрования в покое ScyllaDB
-4. КОГДА настраивается безопасность ТО система ДОЛЖНА проверять настройки безопасности и отказываться запускаться с небезопасными конфигурациями в производственном режиме
+1. WHEN connecting to ScyllaDB THEN system SHALL support TLS encryption for all communications
+2. WHEN authentication occurs THEN system SHALL support username/password and certificate-based authentication methods
+3. WHEN sensitive data is stored THEN system SHALL support ScyllaDB encryption-at-rest capabilities
+4. WHEN security is configured THEN system SHALL validate security settings and refuse to start with insecure configurations in production mode
 
-### Требование 9
+### Requirement 9
 
-**Пользовательская история:** Как администратор системы, я хочу enterprise-уровень аутентификации и авторизации для API пиннинга, чтобы контролировать доступ к операциям пиннинга на основе ролей и политик.
+**User Story:** As a system administrator, I want enterprise-level authentication and authorization for the pinning API, so that I can control access to pinning operations based on roles and policies.
 
-#### Критерии Приемки
+#### Acceptance Criteria
 
-1. КОГДА пользователь отправляет API запрос ТО система ДОЛЖНА аутентифицировать пользователя через JWT токены, API ключи или DID подписи
-2. КОГДА происходит аутентификация ТО система ДОЛЖНА интегрироваться с внешними Identity Provider (Keycloak, Auth0, Web3 кошельки)
-3. КОГДА аутентифицированный пользователь выполняет операцию ТО система ДОЛЖНА проверить авторизацию через RBAC/ABAC политики
-4. КОГДА происходят попытки доступа ТО система ДОЛЖНА логировать все события аутентификации и авторизации для аудита
-5. КОГДА пользователь не имеет прав ТО система ДОЛЖНА возвращать соответствующие HTTP коды ошибок и детальные сообщения
+1. WHEN user submits API request THEN system SHALL authenticate user via JWT tokens, API keys, or DID signatures
+2. WHEN authentication occurs THEN system SHALL integrate with external Identity Providers (Keycloak, Auth0, Web3 wallets)
+3. WHEN authenticated user performs operation THEN system SHALL verify authorization through RBAC/ABAC policies
+4. WHEN access attempts occur THEN system SHALL log all authentication and authorization events for audit
+5. WHEN user lacks permissions THEN system SHALL return appropriate HTTP error codes and detailed messages
 
-### Требование 10
+### Requirement 10
 
-**Пользовательская история:** Как владелец бизнеса, я хочу систему биллинга для отслеживания использования хранилища пинов по пользователям, чтобы монетизировать сервис пиннинга.
+**User Story:** As a business owner, I want a billing system to track pin storage usage by users, so that I can monetize the pinning service.
 
-#### Критерии Приемки
+#### Acceptance Criteria
 
-1. КОГДА пин создается или обновляется ТО система ДОЛЖНА записывать метрики использования хранилища по owner_id
-2. КОГДА происходит агрегация данных ТО система ДОЛЖНА ежедневно суммировать использование хранилища по пользователям
-3. КОГДА рассчитывается стоимость ТО система ДОЛЖНА применять настраиваемые тарифы и генерировать события биллинга
-4. КОГДА генерируются счета ТО система ДОЛЖНА интегрироваться с внешними платежными системами (Stripe, Filecoin, L2)
-5. КОГДА происходят биллинговые события ТО система ДОЛЖНА сохранять детальную историю для аудита и отчетности
+1. WHEN pin is created or updated THEN system SHALL record storage usage metrics by owner_id
+2. WHEN data aggregation occurs THEN system SHALL daily summarize storage usage by users
+3. WHEN cost is calculated THEN system SHALL apply configurable pricing tiers and generate billing events
+4. WHEN invoices are generated THEN system SHALL integrate with external payment systems (Stripe, Filecoin, L2)
+5. WHEN billing events occur THEN system SHALL maintain detailed history for audit and reporting
 
-### Требование 11
+### Requirement 11
 
-**Пользовательская история:** Как DevOps инженер, я хочу комплексную систему мониторинга и алертинга для enterprise развертывания, чтобы обеспечить высокую доступность и производительность системы.
+**User Story:** As a DevOps engineer, I want comprehensive monitoring and alerting system for enterprise deployment, so that I can ensure high availability and system performance.
 
-#### Критерии Приемки
+#### Acceptance Criteria
 
-1. КОГДА система работает ТО она ДОЛЖНА экспортировать метрики Prometheus для всех компонентов (API, воркеры, ScyllaDB, NATS)
-2. КОГДА происходят операции ТО система ДОЛЖНА отслеживать SLO метрики (p95 задержка пинов ≤ 60s, дрейф состояния ≤ 0.5%)
-3. КОГДА нарушаются SLO ТО система ДОЛЖНА генерировать алерты с детальной информацией для устранения проблем
-4. КОГДА требуется диагностика ТО система ДОЛЖНА предоставлять Grafana дашборды с ключевыми метриками производительности
-5. КОГДА происходят критические события ТО система ДОЛЖНА поддерживать интеграцию с системами уведомлений (PagerDuty, Slack)
+1. WHEN system operates THEN it SHALL export Prometheus metrics for all components (API, workers, ScyllaDB, NATS)
+2. WHEN operations occur THEN system SHALL track SLO metrics (p95 pin latency ≤ 60s, state drift ≤ 0.5%)
+3. WHEN SLOs are violated THEN system SHALL generate alerts with detailed information for troubleshooting
+4. WHEN diagnostics are needed THEN system SHALL provide Grafana dashboards with key performance metrics
+5. WHEN critical events occur THEN system SHALL support integration with notification systems (PagerDuty, Slack)
 
-### Требование 12
+### Requirement 12
 
-**Пользовательская история:** Как архитектор системы, я хочу масштабируемую архитектуру с разделением компонентов, чтобы система могла горизонтально масштабироваться и обрабатывать enterprise нагрузки.
+**User Story:** As a system architect, I want scalable architecture with component separation, so that the system can horizontally scale and handle enterprise workloads.
 
-#### Критерии Приемки
+#### Acceptance Criteria
 
-1. КОГДА увеличивается нагрузка ТО система ДОЛЖНА поддерживать горизонтальное масштабирование воркер-агентов без простоя
-2. КОГДА происходит обработка сообщений ТО система ДОЛЖНА использовать NATS JetStream для надежной доставки сообщений между компонентами
-3. КОГДА требуется отказоустойчивость ТО каждый компонент ДОЛЖЕН быть stateless и поддерживать развертывание в нескольких экземплярах
-4. КОГДА происходит сбой компонента ТО система ДОЛЖНА автоматически перенаправлять трафик на здоровые экземпляры
-5. КОГДА система развертывается ТО она ДОЛЖНА поддерживать конфигурацию через переменные окружения и config maps
+1. WHEN load increases THEN system SHALL support horizontal scaling of worker agents without downtime
+2. WHEN message processing occurs THEN system SHALL use NATS JetStream for reliable message delivery between components
+3. WHEN fault tolerance is required THEN each component SHALL be stateless and support multi-instance deployment
+4. WHEN component failure occurs THEN system SHALL automatically route traffic to healthy instances
+5. WHEN system is deployed THEN it SHALL support configuration via environment variables and config maps

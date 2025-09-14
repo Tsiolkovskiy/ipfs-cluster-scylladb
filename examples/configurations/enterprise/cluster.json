@@ -1,0 +1,164 @@
+{
+  "cluster": {
+    "id": "12D3KooWBhHngCCWcyqVAuHWAQPtMk7c4M7NmJKmCQN2QjWJZjWK",
+    "private_key": "CAESQNf4tVqBQAuBYPiVhzlQcKyG8FnuGAmYMZyaUdRVSceqOiKqm+2kkqh/3daZqGctmA4gT8+F2h7wCJDvZHPJ+Gg=",
+    "secret": "2588b80d5cb05374fa142aed6cbb047d1f4ef8ef15e37eba68c65b9d30df67ed",
+    "peers": [],
+    "bootstrap": [
+      "/ip4/10.0.1.10/tcp/9096/p2p/12D3KooWBhHngCCWcyqVAuHWAQPtMk7c4M7NmJKmCQN2QjWJZjWK",
+      "/ip4/10.0.1.11/tcp/9096/p2p/12D3KooWQcgCwNCTYkyLXXQSZuL5ry1TzpM8PRe9dKddfsk1BxXZ",
+      "/ip4/10.0.1.12/tcp/9096/p2p/12D3KooWX7fNy91jsHTPqvLqQKMHPCcHWB3VcArKvfKmG8h1k3Lq",
+      "/ip4/10.0.2.10/tcp/9096/p2p/12D3KooWMvyvKxYcy4mjUbKMLqcVW5KKmCQN2QjWJZjWKvfKmG8h",
+      "/ip4/10.0.2.11/tcp/9096/p2p/12D3KooWLqQKMHPCcHWB3VcArKvfKmG8h1k3LqX7fNy91jsHTPqv"
+    ],
+    "leave_on_shutdown": false,
+    "listen_multiaddress": "/ip4/0.0.0.0/tcp/9096",
+    "connection_manager": {
+      "high_water": 1000,
+      "low_water": 200,
+      "grace_period": "2m0s"
+    },
+    "dial_peer_timeout": "3s",
+    "state_sync_interval": "30s",
+    "ipfs_sync_interval": "1m30s",
+    "replication_factor_min": 3,
+    "replication_factor_max": 5,
+    "monitor_ping_interval": "10s",
+    "peer_watch_interval": "3s",
+    "mdns_interval": "0s",
+    "disable_repinning": false,
+    "follower_mode": false,
+    "peername": "cluster-enterprise"
+  },
+  "consensus": {
+    "crdt": {
+      "cluster_name": "ipfs-cluster-enterprise",
+      "trusted_peers": ["*"],
+      "batching": {
+        "max_batch_size": 100,
+        "max_batch_age": "500ms"
+      },
+      "repair_interval": "15m0s"
+    }
+  },
+  "api": {
+    "ipfsproxy": {
+      "listen_multiaddress": "/ip4/127.0.0.1/tcp/9095",
+      "node_multiaddress": "/ip4/127.0.0.1/tcp/5001",
+      "log_level": "error",
+      "extract_headers_extra": [],
+      "extract_headers_path": "/api/v0/version",
+      "extract_headers_ttl": "5m"
+    },
+    "restapi": {
+      "http_listen_multiaddress": "/ip4/0.0.0.0/tcp/9094",
+      "read_timeout": "60s",
+      "read_header_timeout": "10s",
+      "write_timeout": "120s",
+      "idle_timeout": "300s",
+      "max_header_bytes": 8192,
+      "cors_allowed_origins": ["https://dashboard.example.com", "https://admin.example.com"],
+      "cors_allowed_methods": ["GET", "POST", "PUT", "DELETE"],
+      "cors_allowed_headers": ["Authorization", "Content-Type", "X-Requested-With"],
+      "cors_exposed_headers": ["Content-Type", "X-Stream-Output", "X-Chunked-Output", "X-Content-Length"],
+      "cors_allow_credentials": true,
+      "cors_max_age": "86400s",
+      "basic_auth_credentials": {
+        "admin": "$2a$10$O3QK6l.PiSdAWES4q/ZlAOJ9Z5cBIuOzuIkjlvxGvOzuIkjlvxGv"
+      },
+      "headers": {
+        "Server": "IPFS-Cluster-Enterprise"
+      }
+    }
+  },
+  "ipfs_connector": {
+    "ipfshttp": {
+      "node_multiaddress": "/ip4/127.0.0.1/tcp/5001",
+      "connect_swarms_delay": "30s",
+      "ipfs_request_timeout": "10m0s",
+      "pin_timeout": "5m0s",
+      "unpin_timeout": "6h0m0s",
+      "repogc_timeout": "48h0m0s",
+      "informer_trigger_interval": "0s"
+    }
+  },
+  "state": {
+    "scylladb": {
+      "hosts": [
+        "scylla-dc1-1.internal", "scylla-dc1-2.internal", "scylla-dc1-3.internal",
+        "scylla-dc2-1.internal", "scylla-dc2-2.internal", "scylla-dc2-3.internal"
+      ],
+      "port": 9042,
+      "keyspace": "ipfs_pins_enterprise",
+      "username": "cluster_enterprise_user",
+      "password": "${SCYLLA_PASSWORD}",
+      "tls_enabled": true,
+      "tls_cert_file": "/etc/ssl/certs/cluster-client.crt",
+      "tls_key_file": "/etc/ssl/private/cluster-client.key",
+      "tls_ca_file": "/etc/ssl/certs/scylla-ca.crt",
+      "tls_insecure_skip_verify": false,
+      "num_conns": 20,
+      "timeout": "60s",
+      "connect_timeout": "30s",
+      "consistency": "LOCAL_QUORUM",
+      "serial_consistency": "LOCAL_SERIAL",
+      "retry_policy": {
+        "num_retries": 10,
+        "min_retry_delay": "50ms",
+        "max_retry_delay": "30s"
+      },
+      "batch_size": 5000,
+      "batch_timeout": "500ms",
+      "metrics_enabled": true,
+      "tracing_enabled": true,
+      "dc_aware_routing": true,
+      "token_aware_routing": true,
+      "local_dc": "datacenter1",
+      "fallback_dc": "datacenter2"
+    }
+  },
+  "pin_tracker": {
+    "stateless": {
+      "concurrent_pins": 200,
+      "priority_pin_max_age": "12h0m0s",
+      "priority_pin_max_retries": 10
+    }
+  },
+  "monitor": {
+    "pubsubmon": {
+      "check_interval": "10s"
+    }
+  },
+  "allocator": {
+    "balanced": {
+      "allocate_by": ["tag:datacenter", "tag:tier", "freespace", "latency"]
+    }
+  },
+  "informer": {
+    "disk": {
+      "metric_ttl": "15s",
+      "metric_type": "freespace"
+    },
+    "tags": {
+      "metric_ttl": "15s",
+      "tags": {
+        "datacenter": "dc1",
+        "tier": "production",
+        "environment": "enterprise"
+      }
+    }
+  },
+  "observations": {
+    "metrics": {
+      "enable_stats": true,
+      "prometheus_endpoint": "/ip4/0.0.0.0/tcp/8888",
+      "reporting_interval": "1s"
+    },
+    "tracing": {
+      "enable_tracing": true,
+      "jaeger_agent_endpoint": "/ip4/jaeger-collector:14268/http",
+      "sampling_prob": 0.05,
+      "service_name": "cluster-enterprise"
+    }
+  }
+}

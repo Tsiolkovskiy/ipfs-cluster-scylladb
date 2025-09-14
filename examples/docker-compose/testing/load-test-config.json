@@ -1,0 +1,46 @@
+{
+  "cluster_endpoints": [
+    "http://cluster-1:9094",
+    "http://cluster-2:9094", 
+    "http://cluster-3:9094"
+  ],
+  "test_duration": "5m",
+  "scenarios": {
+    "pin_operations": {
+      "enabled": true,
+      "pin_rate": 50,
+      "unpin_rate": 25,
+      "list_rate": 100,
+      "concurrent_clients": 10
+    },
+    "batch_operations": {
+      "enabled": true,
+      "batch_size": 10,
+      "batch_rate": 5,
+      "concurrent_batches": 5
+    },
+    "mixed_workload": {
+      "enabled": true,
+      "pin_weight": 0.6,
+      "unpin_weight": 0.2,
+      "list_weight": 0.2,
+      "operation_rate": 200
+    }
+  },
+  "data_generation": {
+    "cid_pool_size": 10000,
+    "reuse_cids": true,
+    "metadata_enabled": true,
+    "tags_enabled": true
+  },
+  "monitoring": {
+    "metrics_interval": "5s",
+    "detailed_logging": false,
+    "export_prometheus": true
+  },
+  "thresholds": {
+    "max_latency_p95": "2s",
+    "max_error_rate": 0.05,
+    "min_throughput": 100
+  }
+}
